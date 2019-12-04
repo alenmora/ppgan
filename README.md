@@ -4,16 +4,22 @@
 訓練前に実行してください。
 
 1. モジュールのインストール
-以下のコマンドを実行する
-
-$ pip install -r requirements.txt
+特に必要なし
 
 ## 訓練手順
 ### 1. データの準備
-data フォルダ以下に画像データを格納する
+data フォルダ以下に画像データを格納する．現在利用できるものとしては，
+/home/2019A/data/dentsu/images
+に格納した二つのデータセットがある．
+
+``` shell
+-rw-r--r-- 1 taichi taichi 292179167 Dec  5 06:21 anime_face_dentsu.zip
+-rw-r--r-- 1 taichi taichi 462126466 Dec  5 06:24 anime-faces.zip
+```
+anime_face_dentsuは電通側から提供されたもの，anime-facesはkaggleからダウンロードしたものである．
 
 ### 2. config ファイルの設定
-config.py を編集する。
+config.py を適宜編集する。
 
 #### 2-a. 最初から訓練する場合：
 config.py:
