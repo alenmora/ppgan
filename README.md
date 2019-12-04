@@ -1,64 +1,77 @@
-# PGGAN PyTorch - by **Naveen Benny**
-This is a PyTorch implementation of the paper [Progressive Growing Of GANS For Improved Quality, Stability, And Variation by Karras et al.](https://arxiv.org/abs/1710.10196) 
+# PGGAN sample
 
-## Novel Contributions from this Paper
-* **Progressive Growing:** The primary contribution of the paper is a training methodology for GANs starting with low-resolution images, and then progressively increasing the resolution by adding layers to the networks as shown below
+## 初期設定
+訓練前に実行してください。
 
-<p align="center">
-  <img src="/samples/figure.png">
-</p>
+1. モジュールのインストール
+以下のコマンドを実行する
 
-* **Mini-batch Discrimination:** To improve variance of generated samples, the authors add a Simplified Minibatch discrimination. Towards the end of the discriminator, batch standard deviation estimates across features and spatial locations are calculated to yeild one feature map that is then concatenated and fed to the next layer 
-* To prevent escalation of signal magnitudes due to an unhealthy competition between discriminator and generator, the authors add
-  * **Equalized learning rates:** Addition weight scaling to every layer using normalization constant from He’s initializer (He et al., 2015) and avoiding explicit weight initialization
-  * **Pixel Normalization:** Normalize the feature vector in each pixel to unit length in the generator after each convolutional layer. They do this using a variant of “local response normalization” (Krizhevsky et al., 2012)
+$ pip install -r requirements.txt
 
-## Implementation
+## 訓練手順
+### 1. データの準備
+data フォルダ以下に画像データを格納する
 
-### Samples
-* Below are some of the samples generated from this implementation. For each resolution, the people on the left column do not exist, ones on the right are from the celeba dataset
+### 2. config ファイルの設定
+config.py を編集する。
 
-**Resolutions**
-#### | ----- 4 x 4 ------ | ----- 8 x 8 ------ | ---- 16 x 16 ----- | ---- 32 x 32 ---- | ---- 64 x 64 ---- | --- 128 x 128 --- | --- 256 x 256 --- |
-<p align="center">
-  <img src="/samples/compiled.png">
-</p>
+#### 2-a. 最初から訓練する場合：
+config.py:
+- startRes=4
+- startStage='stab'
+を指定する
 
-* More samples are available in the samples folder and in the log files
+modelCheckpoint_<n>_[fade|stab]_37500.pth.tar
+のような形式のモデルのチェックポイントファイルが生成されます。
 
-### Code
-* Training Time ~ 2 days on a single Nvidia GTX 1080Ti (11GB VRAM)
-* The code is well structured, modular and well commented, therefore not creating another doc. Below are the modules that are part of this code
-  * **main.py** - main function
-  * **trainUtils.py** - Trainer/Solver class 
-  * **modelUtils.py** - Custom Layers for Gen and Disc
-  * **models.py** - Generator and Discriminator Class
-  * **dataUtils.py** - Dataloader and dataset 
-  * **config.py** - Paths, Hyperparameters, configurations etc.
-  * **log Folder** - Contains training statistics and losses, logged hyperparams, model architectures and generated samples
-  * **samples Folder** - Has a few generated samples from this implementaion
-  * **data Folder** - Should place the celeba dataset here. There are already a few samples placed for testing 
-  * **architectures.txt** - Elaborates Gen and Disc architectures
-### Differences from the official [Tensorflow Implementation](https://github.com/tkarras/progressive_growing_of_gans#progressive-growing-of-gans-for-improved-quality-stability-and-variation-official-tensorflow-implementation-of-the-iclr-2018-paper) 
-  * Unlike the original implementation that uses Wasserstein - GP Loss (Gulrajani et al., 2017), this uses a simple MSE Loss. This makes training slightly unstable and requires using noisy labels, a hack that is used often with GANs. At 256 x 256 sizes, the training might become unstable. Using WGAN-GP should help solve this
-  * The original implementation uses celeba-HQ dataset while this implementation uses the standard celeba dataset. The HQ dataset would probably take weeks on my machine (Original implementation takes 20 days on NVIDIA Tesla P100 GPU!!)
-  * Other minor differences such as absence of linear layers in the initial layers etc.
+訓練の順番は以下のステージを踏みます。
+4*4 stable -> 8*8 fade in -> 8*8 stable -> 16*16 fade in ->16*16 stable
 
-## Steps to execute
-1. Clone repo 
-```
-git clone https://github.com/nvnbny/progressive_growing_of_gans.git
-```
-2. Install dependencies 
-    * PyTorch (0.4.0>)
-    * PIL
-    * numpy
-    * cv2
-3. Download and unzip [celeba dataset](https://www.kaggle.com/jessicali9530/celeba-dataset/version/2#_=_). Place the 'img_align_celeba' folder inside the ./data folder
-4. Run the code below
-```
-python main.py
-```
-5. Check log folder for stats and samples
+#### 2-b.　途中から訓練を再開する場合：
+訓練の順番にしたがって、config.pyのなかの変数を指定すること。
 
-**Please feel free to raise issues/PRs**
+再開する際に、モデルのチェックポイントファイルと同時に startRes,startStaege を指定してください。
+
+例①：
+modelFname='modelCheckpoint_8_stab_37500.pth.tar'　を利用する場合：
+- startRes=16
+- startStage='fade'
+を指定する
+
+例②：
+modelFname='modelCheckpoint_8_fade_37500.pth.tar' を利用する場合：
+- startRes=8
+- startStage='stab'
+を指定する
+
+### 3. 以下のコマンドを実行する
+ $ python train.py
+
+
+## 生成手順
+
+### 1. configファイルの設定
+config.pyを編集してモデルのスナップショットファイル他を指定する
+
+指定する項目は以下のようになる。
+- config.gen_image_path
+- config.LOG_DIR　　 : ログ出力場所
+- config.logDir     : LOG_DIR　の直下に作成する各実験ごとのログの保存フォルダ名
+- config.modelFname : モデルのチェックポイントファイルのパス
+
+
+### 2. 以下のコマンドを実行する
+(実行するたびに画像1枚生成され指定のpathに保存する)
+$ python generator.py
+
+
+## 画像の特徴ベクトルを抽出する手順
+feature_extractor.pyを実行する。
+
+引数'--img_path' にgeneratorで生成した画像のパス（ファイル名も含む）を指定する。
+相対パスを指定した場合は、feature_extractor.py からの相対パスが指定されたことになる。
+
+例：
+$ python feature_extractor.py --img_path image_generated/test.jpg
+
+実行すると画像の特徴値として1000次元のベクトルが生成される。
