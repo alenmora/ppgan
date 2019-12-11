@@ -170,21 +170,17 @@ class Trainer:
         self.dOptimizer.zero_grad()
         switchTrainable(self.disc, True)
 
-        # Noisy Labels
-        one = 1 + np.random.randn() * 0.3
-        zero = np.random.randn() * 0.3
-        
         # real
         dRealOut = self.disc(x=self.real.detach(), fadeWt=self.fadeWt)
-        discRealLoss_ = 0.5 * torch.mean((dRealOut - one)**2)
+        discRealLoss_ = torch.mean(dRealOut)
         
         # fake
         self.z = self.getNoise()
         self.fake = self.gen(x=self.z, fadeWt=self.fadeWt)
         dFakeOut = self.disc(x=self.fake.detach(), fadeWt=self.fadeWt)
-        discFakeLoss_ = 0.5 * torch.mean((dFakeOut - zero)**2)
+        discFakeLoss_ = torch.mean(dFakeOut)
         
-        discLoss_ = discRealLoss_ + discFakeLoss_
+        discLoss_ = discFakeLoss_ - discRealLoss_
         discLoss_.backward(); self.dOptimizer.step()
         return discLoss_.item(), discRealLoss_.item(), discFakeLoss_.item()
     
@@ -197,11 +193,11 @@ class Trainer:
         
         self.z = self.getNoise()
         self.fake = self.gen(x=self.z, fadeWt=self.fadeWt)
-        genDiscLoss_ = torch.mean((self.disc(x=self.fake, fadeWt=self.fadeWt) - True)**2)
+        genDiscLoss_ = self.disc(x=self.fake, fadeWt=self.fadeWt)
         
-        genLoss_ = genDiscLoss_
+        genLoss_ = -1*genDiscLoss_
         genLoss_.backward(); self.gOptimizer.step()
-        return genLoss_.item(), genDiscLoss_.item()
+        return genLoss_.item()
     
     def train(self):
         """

@@ -7,7 +7,9 @@ import modelUtils, torch.nn as nn, numpy as np
 def genConvBlock(net, inCh, outCh, kernelSize, padding, stride=1, negSlope=0.2):
     """
     This funtion appends and returns LIST of conv blocks for gen
+    net: list to append the current block
     """
+    assert kernelSize >= 1 and kernelSize % 2 == 1
     net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]    
     net += [nn.LeakyReLU(negative_slope=negSlope)]
     net += [modelUtils.PixelNormalization()]
@@ -16,7 +18,7 @@ def genConvBlock(net, inCh, outCh, kernelSize, padding, stride=1, negSlope=0.2):
 
 def toRGBBlock(inCh, outCh, kernelSize=1, stride=1, padding=0):
     """
-    This creates an sequential post processing block (ch to channel)
+    This creates a sequential post processing block (ch to channel)
     """
     net = [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding, gain=1)]
     return nn.Sequential(*net)
@@ -31,7 +33,8 @@ class Generator(nn.Module):
         self.fmapBase = fmapBase
         self.fmapDecay = fmapDecay
         self.fmapMax = fmapMax
-        nBlocks = int(np.log2(resolution))
+        nBlocks = int(np.log2(resolution))-1
+        assert resolution == 2**(nBlocks+1) and resolution >= 4
         
         chain = nn.ModuleList()
         post = nn.ModuleList()
@@ -49,7 +52,7 @@ class Generator(nn.Module):
         
         # Blocks 8x8 and up
         for i in range(2, nBlocks):
-            inCh, outCh = self.getNoChannels(i-1), self.getNoChannels(i)
+            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i)
             net = [nn.Upsample(scale_factor=2, mode='nearest')]
             net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1) 
             net = genConvBlock(net=net, inCh=outCh, outCh=outCh, kernelSize=3, padding=1)
@@ -78,6 +81,7 @@ def discConvBLock(net, inCh, outCh, kernelSize, padding, stride=1,  negSlope=0.2
     """
     This funtion appends and returns LIST of conv blocks for disc
     """
+    assert kernelSize >= 1 and kernelSize % 2 == 1
     net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]
     net += [nn.LeakyReLU(negative_slope=negSlope)]
     return net
@@ -101,18 +105,19 @@ class Discriminator(nn.Module):
         self.fmapBase = fmapBase
         self.fmapDecay = fmapDecay
         self.fmapMax = fmapMax
-        nBlocks = int(np.log2(resolution))
+        nBlocks = int(np.log2(resolution))-1
+        assert resolution == 2**(nBlocks+1) and resolution >= 4
         
         chain = nn.ModuleList()
         pre = nn.ModuleList()
 
         # Last preproccesing layer (e.g. 256 x 256)
-        inCh, outCh = nOutputChannels, self.getNoChannels(nBlocks-1)
+        inCh, outCh = nOutputChannels, self.getNoChannels(nBlocks)
         fromRGB = fromRGBBlock(inCh=inCh, outCh=outCh)
         pre.append(fromRGB)
         
         # Blocks 256 x 256 to 8 x 8
-        for i in range(nBlocks-1, 1, -1):
+        for i in range(nBlocks, 1, -1):
             inCh, outCh = self.getNoChannels(i), self.getNoChannels(i-1)
             net = []
             net = discConvBLock(net, inCh=inCh, outCh=inCh, kernelSize=3, padding=1)
@@ -133,10 +138,9 @@ class Discriminator(nn.Module):
         inCh, outCh = outCh, self.getNoChannels(0)
         
         net = discConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=4, padding=0)
-        inCh, outCh = outCh, 1
         
-        net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=1, stride=1, padding=0, gain=1)]
-        
+        net.append(nn.Linear(outCh,1)) #Return a critic, not a discriminator
+
         chain.append(nn.Sequential(*net))
         self.net = modelUtils.ProcessDiscLevel(pre=pre, chain=chain)
     

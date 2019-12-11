@@ -61,12 +61,12 @@ class BatchStdConcat(nn.Module):
 
     def forward(self, x):
         shape = list(x.size())                                              # NCHW - Initial size
-        xStd = x.view(self.groupSize, -1, shape[1], shape[2], shape[3])     # GMCHW - split batch as groups of 4  
-        xStd -= torch.mean(xStd, dim=0, keepdim=True)                       # GMCHW - Subract mean of shape 1MCHW
-        xStd = torch.mean(xStd ** 2, dim=0, keepdim=False)                  # MCHW - Take mean of squares
-        xStd = (xStd + 1e-08) ** 0.5                                        # MCHW - Take std 
+        xStd = x.view(self.groupSize, -1, shape[1], shape[2], shape[3])     # GMCHW - split minbatch into M groups of size G groupSize
+        xStd -= torch.mean(xStd, dim=0, keepdim=True)                       # GMCHW - Subract mean of over groups
+        xStd = torch.mean(xStd ** 2, dim=0, keepdim=False)                  # MCHW - Calculate variance over groups
+        xStd = (xStd + 1e-08) ** 0.5                                        # MCHW - Calculate std dev over groups
         xStd = torch.mean(xStd.view(int(shape[0]/self.groupSize), -1), dim=1, keepdim=True).view(-1, 1, 1, 1)
-                                                                            # M111 - Take mean across CHW
+                                                                            # M111 - Take mean over CHW
         xStd = xStd.repeat(self.groupSize, 1, shape[2], shape[3])           # N1HW - Expand to same shape as x with one channel 
         return torch.cat([x, xStd], 1)
     
@@ -89,7 +89,7 @@ class ProcessGenLevel(nn.Module):
         # Calculate levels invloved (in case of fade stage) and the wts for each level
         prevLevel, curLevel = int(np.floor(fadeWt-1)), int(np.ceil(fadeWt-1))
         curLevelWt = fadeWt-int(fadeWt); prevLevelWt = 1 - curLevelWt
-        fade = False if prevLevel==curLevel else True
+        fade = (prevLevel != curLevel)
         
         # Loop through all levels till current level
         for lev in range(curLevel+1):
