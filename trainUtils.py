@@ -53,8 +53,9 @@ class Trainer:
         # model 
         self.createModels()
         self.loss_mse = nn.MSELoss().cuda()
-        self.genLoss = []; self.genDiscLoss = [] 
+        self.genLoss = []
         self.discLoss = []; self.discRealLoss = []; self.discFakeLoss = []
+        self.gradientReal = []; self.gradientFake[]
         
         # Log
         if self.logDir==None: self.createLogDir()
@@ -110,11 +111,10 @@ class Trainer:
         """
         # Average all stats and log
         genLoss_ = np.mean(self.genLoss[-self.logStep:])
-        genDiscLoss_ = np.mean(self.genDiscLoss[-self.logStep:])
         discLoss_ = np.mean(self.discLoss[-self.logStep:])
         discRealLoss_ = np.mean(self.discRealLoss[-self.logStep:])
         discFakeLoss_ = np.mean(self.discFakeLoss[-self.logStep:])
-        stats = f'{datetime.now():%HH:%MM}| {self.res}| {self.stage}| {self.n}/{self.nIterations}| {genLoss_:.4f}| {discLoss_:.4f}| {genDiscLoss_:.4f}| {discRealLoss_:.4f}| {discFakeLoss_:.4f}| {self.dLR:.2e}| {self.gLR:.2e}'
+        stats = f'{datetime.now():%HH:%MM}| {self.res}| {self.stage}| {self.n}/{self.nIterations}| {genLoss_:.4f}| {discLoss_:.4f}| {discRealLoss_:.4f}| {discFakeLoss_:.4f}| {self.dLR:.2e}| {self.gLR:.2e}'
         print(stats); writeFile(self.logDir + 'log.txt', stats, 'a')
         
         # Loop through each image and process
@@ -163,7 +163,7 @@ class Trainer:
             except: bs = 1
         return FT(bs, self.latentSize).normal_().cuda()
           
-    def trainDiscriminator(self):
+    def trainDiscriminator(self,lamb=10,obj=1):
         """
         Do one step for discriminator
         """
@@ -171,18 +171,34 @@ class Trainer:
         switchTrainable(self.disc, True)
 
         # real
-        dRealOut = self.disc(x=self.real.detach(), fadeWt=self.fadeWt)
+        real = self.real
+        dRealOut = self.disc(x=real.detach(), fadeWt=self.fadeWt)
         discRealLoss_ = torch.mean(dRealOut)
         
         # fake
         self.z = self.getNoise()
         self.fake = self.gen(x=self.z, fadeWt=self.fadeWt)
-        dFakeOut = self.disc(x=self.fake.detach(), fadeWt=self.fadeWt)
+        fake = self.fake
+        dFakeOut = self.disc(x=fake.detach(), fadeWt=self.fadeWt)
         discFakeLoss_ = torch.mean(dFakeOut)
+
+        # gradient penalty
+        gradientReal = autograd.grad(outputs=dRealOut, inputs=real,
+                              grad_outputs=torch.ones(dRealOut.size()),
+                              create_graph=False, retain_graph=False, only_inputs=True)[0]
+        gradientReal = gradientReal.view(gradients.size(0), -1)
+
+        gradientFake = autograd.grad(outputs=dFakeOut, inputs=fake,
+                              grad_outputs=torch.ones(dFakeOut.size()),
+                              create_graph=False, retain_graph=False, only_inputs=True)[0]
+        gradientFake = gradientFake.view(gradients.size(0), -1)
         
         discLoss_ = discFakeLoss_ - discRealLoss_
+        discLoss_ = discLoss_ + lamb*((gradientReal.norm(2,dim=1)-obj)**2).mean() 
+        discLoss_ = discLoss_ + lamb*((gradientFake.norm(2,dim=1)-obj)**2).mean()
+
         discLoss_.backward(); self.dOptimizer.step()
-        return discLoss_.item(), discRealLoss_.item(), discFakeLoss_.item()
+        return discLoss_.item(), discRealLoss_.item(), discFakeLoss_.item(), gradientReal.item(), gradientFake.item()
     
     def trainGenerator(self):
         """
@@ -195,7 +211,7 @@ class Trainer:
         self.fake = self.gen(x=self.z, fadeWt=self.fadeWt)
         genDiscLoss_ = self.disc(x=self.fake, fadeWt=self.fadeWt)
         
-        genLoss_ = -1*genDiscLoss_
+        genLoss_ = -genDiscLoss_
         genLoss_.backward(); self.gOptimizer.step()
         return genLoss_.item()
     
@@ -206,7 +222,7 @@ class Trainer:
         samplesPerStage=config.samplesPerStage 
         self.logStep = config.logStep
         modifyLR(optimizer=self.gOptimizer, lr=self.gLR); modifyLR(optimizer=self.dOptimizer, lr=self.dLR)
-        print('Time   |res |stage|It        |gLoss  |dLoss  |gDLoss |dRLoss |dFLoss |dLR      |gLR      ')
+        print('Time   |res |stage|It        |gLoss  |dLoss |dRLoss |dFLoss |dLR      |gLR      ')
         
         # for every resolution
         for i, self.res in enumerate(self.resolutions):
@@ -224,7 +240,7 @@ class Trainer:
                     self.dataIterator = iter(self.dataloader)
                     
                     # No fade if this is the first res
-                    if i + 1 == 1 and self.stage == 'fade': continue
+                    if i == 0 and self.stage == 'fade': continue
                     
                     # No fade if continuing from stab after loading model  
                     if self.startStage == 'stab' and self.res == self.startRes: continue 
@@ -235,13 +251,14 @@ class Trainer:
                     self.callDataIteration()
 
                     # Train Disc
-                    discLoss_, discRealLoss_, discFakeLoss_ = self.trainDiscriminator()
+                    discLoss_, discRealLoss_, discFakeLoss_, gradientReal_, gradientFake_ = self.trainDiscriminator()
                     self.discLoss.append(discLoss_); self.discRealLoss.append(discRealLoss_)
                     self.discFakeLoss.append(discFakeLoss_)
+                    self.gradientReal.append(gradientReal_); self.gradientFake.append(gradientFake_)
 
                     # Train Gen
-                    genLoss_, genDiscLoss_ = self.trainGenerator()
-                    self.genLoss.append(genLoss_); self.genDiscLoss.append(genDiscLoss_)
+                    genLoss_ = self.trainGenerator()
+                    self.genLoss.append(genLoss_)
 
                     # log
                     if self.n % self.logStep == 0 or self.n % (self.nIterations) == 0 : self.logTrainingStats()
