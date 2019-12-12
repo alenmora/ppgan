@@ -163,39 +163,44 @@ class Trainer:
             except: bs = 1
         return FT(bs, self.latentSize).normal_().cuda()
           
-    def trainDiscriminator(self,lamb=10,obj=1):
+    def trainCritic(self,lamb=10,obj=1,epsilon=0.0001):
         """
-        Do one step for discriminator
+        Do one step for the critic
         """
         self.dOptimizer.zero_grad()
         switchTrainable(self.disc, True)
 
         # real
         real = self.real
-        dRealOut = self.disc(x=real.detach(), fadeWt=self.fadeWt)
-        discRealLoss_ = torch.mean(dRealOut)
+        cRealOut = self.disc(x=real.detach(), fadeWt=self.fadeWt)
+        critRealLoss_ = torch.mean(dRealOut)
         
         # fake
         self.z = self.getNoise()
         self.fake = self.gen(x=self.z, fadeWt=self.fadeWt)
         fake = self.fake
-        dFakeOut = self.disc(x=fake.detach(), fadeWt=self.fadeWt)
-        discFakeLoss_ = torch.mean(dFakeOut)
+        cFakeOut = self.disc(x=fake.detach(), fadeWt=self.fadeWt)
+        critFakeLoss_ = torch.mean(dFakeOut)
+
+        #Critic loss
+        critLoss_ = critFakeLoss_ - critRealLoss_
 
         # gradient penalty
-        gradientReal = autograd.grad(outputs=dRealOut, inputs=real,
-                              grad_outputs=torch.ones(dRealOut.size()),
+        gradientReal = autograd.grad(outputs=cRealOut, inputs=real,
+                              grad_outputs=torch.ones(cRealOut.size()),
                               create_graph=False, retain_graph=False, only_inputs=True)[0]
         gradientReal = gradientReal.view(gradients.size(0), -1)
 
-        gradientFake = autograd.grad(outputs=dFakeOut, inputs=fake,
-                              grad_outputs=torch.ones(dFakeOut.size()),
+        gradientFake = autograd.grad(outputs=cFakeOut, inputs=fake,
+                              grad_outputs=torch.ones(cFakeOut.size()),
                               create_graph=False, retain_graph=False, only_inputs=True)[0]
         gradientFake = gradientFake.view(gradients.size(0), -1)
         
-        discLoss_ = discFakeLoss_ - discRealLoss_
-        discLoss_ = discLoss_ + lamb*((gradientReal.norm(2,dim=1)-obj)**2).mean() 
-        discLoss_ = discLoss_ + lamb*((gradientFake.norm(2,dim=1)-obj)**2).mean()
+        critLoss_ = critLoss_ + lamb*((gradientReal.norm(2,dim=1)-obj)**2).mean() 
+        critLoss_ = critLoss_ + lamb*((gradientFake.norm(2,dim=1)-obj)**2).mean()
+
+        #Drift loss
+        critLoss_ = critLoss_ + epsilon*((cRealOut.norm(2))
 
         discLoss_.backward(); self.dOptimizer.step()
         return discLoss_.item(), discRealLoss_.item(), discFakeLoss_.item(), gradientReal.item(), gradientFake.item()

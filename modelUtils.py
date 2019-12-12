@@ -78,14 +78,14 @@ class ProcessGenLevel(nn.Module):
     """
     Based on the fade wt, this module will use relevant conv layer levels to return generated image
     """
-    def __init__(self, chain, post):
+    def __init__(self, chain=None, toRGBs=None):
         super().__init__()
         self.chain = chain
-        self.post = post
+        self.toRGBs = toRGBs
         self.nLevels = len(self.chain)
 
     def forward(self, x, fadeWt):
-        
+ 
         # Calculate levels invloved (in case of fade stage) and the wts for each level
         prevLevel, curLevel = int(np.floor(fadeWt-1)), int(np.ceil(fadeWt-1))
         curLevelWt = fadeWt-int(fadeWt); prevLevelWt = 1 - curLevelWt
@@ -108,13 +108,13 @@ class ProcessGenLevel(nn.Module):
         return x
 
 
-class ProcessDiscLevel(nn.Module):
+class ProcessCriticLevel(nn.Module):
     """
     Based on the fade wt, this module will use relevant conv layer levels to return generated image
     """
-    def __init__(self, pre, chain):
+    def __init__(self, fromRGBs=None, chain=None):
         super().__init__()
-        self.pre = pre
+        self.fromRGBs = fromRGBs
         self.chain = chain
         self.nLevels = len(self.chain)
 
