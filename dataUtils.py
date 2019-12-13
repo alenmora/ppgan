@@ -1,6 +1,7 @@
 import os, PIL.Image as Image, numpy as np, torch, cv2
 from torch.utils.data import Dataset, DataLoader
 from glob import glob
+import math
 
 ################################################################################
 # Util Functions
@@ -25,50 +26,61 @@ def tensorToImage(tensor):
 
 def arrayToTensor(array):
     """
-    Convert numpy array to tensor after transposing and float 32 conversion  
+    Convert numpy array to tensor after transposing (make the RGB channels be the first index) and float 32 conversion  
     """
     return torch.from_numpy(np.transpose(array.astype('float32'), (2, 0, 1)))
 
+def imagePreprocessing(img):
+    """
+    Preprocess an image read with opencsv
+    """
+    # preprocess 
+    smallestDim = min(img.shape[:-1]) #Get the smallest dimension (height or width)
+    shape = np.array(img.shape[:-1])
+    minIndex = np.floor((shape - smallestDim)/2) #Define the coordinate of the new leftmost, lowest pixel
+    maxIndex = shape - np.ceil((shape - smallestDim)/2) #Define the coordinate of the new rightmost, highest pixel
+    img = img[int(minIndex[0]):int(maxIndex[0]), 
+              int(minIndex[1]):int(maxIndex[1])] #Make the image squared by cropping
+    img = img[:, :, ::-1].astype('float32') #The image channels are read in the order BGR, so we invert them to get RGB
+    img = cv2.resize(img, (self.res, self.res), cv2.INTER_NEAREST) #Resize it (decrease resolution)
+    img = img/127.5 - 1 #Center around 0
+        
 
 ################################################################################
 # Dataloader functions
 ################################################################################
 
-class CelebDataset(Dataset):
+class imageDataset(Dataset):
     """
-    This class will create dataset for bodylessDataset
+    This class represents a dataset of preprocessed images of resolution res x res
     """
-    def __init__(self, path, res):
+    def __init__(self, path, res, preprocess=None):
         self.paths = glob(os.path.join(path, '*.jpg'))
         self.res =  res
+        self.preprocess = preprocess
         
     def __len__(self):
         return len(self.paths)
     
     def __getitem__(self, idx):
-        # Get data
+        # Get an image element. It is an array of height x width x channels
         img = cv2.imread(self.paths[idx])
-    
-        # preprocess 
-        img = img[20:198, 0:178]
-        img = img[:, :, ::-1].astype('float32')
-        img = cv2.resize(img, (self.res, self.res), cv2.INTER_NEAREST) 
-        img = img/127.5 - 1
-        
+
+        if self.preprocess:
+            img = self.preprocess(img)
+
         # convert to tensor
         img = arrayToTensor(img)
+    
         return img
 
-
-def loadData(path, res, batchSize):
+def loadData(path, res, batchSize, numWorkers=4, pinMemory=False, preprocess=imagePreprocessing):
     """
     Function to load and preprocess data from path
     """
-    dataset = CelebDataset(path, res)
-    dataloader = DataLoader(dataset, batch_size=batchSize, num_workers=4, shuffle=True, drop_last=True, pin_memory=True)
+    dataset = imageDataset(path, res, preprocess = preprocess)
+    dataloader = DataLoader(dataset, batch_size = batchSize, num_workers = numWorkers, shuffle = True, drop_last = True, pin_memory = pinMemory)
 
-    # dataIterator =  iter(dataloader); img = dataIterator.next()
-    # print(f'Data Loaded - Image Shape: {str(img.size())}')
     return dataloader
 
       
