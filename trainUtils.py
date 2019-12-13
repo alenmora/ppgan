@@ -55,6 +55,11 @@ class Trainer:
         self.endRes = config.endRes
         self.samplesWhileStable = config.samplesWhileStable
         self.samplesWhileFade = config.samplesWhileFade
+        
+        # Hyperparams for loss function of critic
+        self.lamb = 10 if config.lamb == None else config.lamb
+        self.obj = 1 if config.obj == None else config.obj
+        self.epsilon = 0.001 if config.epsilon == None else config.epsilon
 
         # model 
         self.createModels()
@@ -127,7 +132,8 @@ class Trainer:
         """
         This function will return hyperparameters and architecture as string
         """
-        hyperParams = f'HYPERPARAMETERS - cLR-{self.cLR}|gLR-{self.gLR}'
+        hyperParams = f'HYPERPARAMETERS - cLR-{self.cLR}|gLR-{self.gLR}|lambda-{self.lamb}'
+                      f'|obj-{self.obj}|epsilon-{self.epsilon}|fadeSteps-{self.samplesWhileFade}|stableSteps-{self.samplesWhileStable}'
         architecture = '\n\n' + str(self.crit) + '\n\n' + str(self.gen) + '\n\n'
         print(hyperParams)    
         return hyperParams + architecture
@@ -202,7 +208,7 @@ class Trainer:
             except: bs = 1
         return FT(bs, self.latentSize).normal_().to(device=self.device)
           
-    def trainCritic(self,fadeWt,lamb=10,obj=1,epsilon=0.0001):
+    def trainCritic(self,fadeWt):
         """
         Train the critic for one step
         """
@@ -238,11 +244,11 @@ class Trainer:
                               create_graph=False, retain_graph=False, only_inputs=True)[0]
         gradientFake = gradientFake.view(gradients.size(0), -1)
         
-        critLoss_ = critLoss_ + lamb*((gradientReal.norm(2,dim=1)-obj)**2).mean() 
-        critLoss_ = critLoss_ + lamb*((gradientFake.norm(2,dim=1)-obj)**2).mean()
+        critLoss_ = critLoss_ + self.lamb*((gradientReal.norm(2,dim=1)-self.obj)**2).mean() 
+        critLoss_ = critLoss_ + self.lamb*((gradientFake.norm(2,dim=1)-self.obj)**2).mean()
 
         #Drift loss
-        critLoss_ = critLoss_ + epsilon*((cRealOut.norm(2))
+        critLoss_ = critLoss_ + self.epsilon*((cRealOut.norm(2))
 
         ; self.cOptimizer.step()
         return critLoss_.item(), critRealLoss_.item(), critFakeLoss_.item(), gradientReal.item(), gradientFake.item()
@@ -313,12 +319,12 @@ class Trainer:
             self.callDataIteration()
 
             # Train Critic
-            critLoss_, critRealLoss_, critFakeLoss_, gradientReal_, gradientFake_ = self.trainCritic()
+            critLoss_, critRealLoss_, critFakeLoss_, gradientReal_, gradientFake_ = self.trainCritic(fadeWt)
             self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
             self.gradientReal.append(gradientReal_); self.gradientFake.append(gradientFake_)
 
             # Train Gen
-            genLoss_ = self.trainGenerator()
+            genLoss_ = self.trainGenerator(fadeWt)
             self.genLoss.append(genLoss_)
 
             # log

@@ -31,11 +31,18 @@ usePreWts = True
 preWtsFile = None
 
 ## Hyperparameters
-# Discriminator Learning Rate
+# Critic Learning Rate
 dLR=1e-3
 # Group size for the standard deviation calculation in the last block of the critic. If None, it is set equal to 4.
 # To deactivate, make it 0 or 1
 stdDevGroup = 4
+# lambda and obj are hyperparameters to perform gradient penalization on the critic. It is done by adding a term of 
+# the form lamb*(grad**2 - obj)**2 to the loss function, where grad is the gradient with respect to the input values
+lamb = 10
+obj = 1
+# epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
+# epsilon*(output)**2 to the loss function
+epsilon = 0.001
 
 # Generator Learning Rate
 gLR=1e-3
