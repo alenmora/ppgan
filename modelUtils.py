@@ -55,9 +55,9 @@ class BatchStdConcat(nn.Module):
     """
     Add std to last layer group of disc to improve variance
     """
-    def __init__(self, groupSize=4):
+    def __init__(self, groupSize = 4):
         super().__init__()
-        self.groupSize=4
+        self.groupSize = groupSize
 
     def forward(self, x):
         shape = list(x.size())                                              # NCHW - Initial size
@@ -82,31 +82,29 @@ class ProcessGenLevel(nn.Module):
         super().__init__()
         self.chain = chain
         self.toRGBs = toRGBs
-        self.nLevels = len(self.chain)
 
-    def forward(self, x, fadeWt):
- 
-        # Calculate levels invloved (in case of fade stage) and the wts for each level
-        prevLevel, curLevel = int(np.floor(fadeWt-1)), int(np.ceil(fadeWt-1))
-        curLevelWt = fadeWt-int(fadeWt); prevLevelWt = 1 - curLevelWt
-        fade = (prevLevel != curLevel)
+    def forward(self, x, fadeWt, curResLevel):
+
+        for level in range(curResLevel):
+                x = self.chain[level](x)
+
+        if (fadeWt == 0):  #If fadeWt is zero we are at a stable stage, so just apply the last resolution layer
+            
+            x = self.chain[curResLevel](x)
+            x = self.toRGBs[curResLevel](x)
+
+            return x
         
-        # Loop through all levels till current level
-        for lev in range(curLevel+1):
-            x = self.chain[lev](x)
-            
-            # process prev level image only if fade stage
-            if lev == prevLevel and fade: 
-                prevLevel_x = self.post[lev](x)
-            
-            if lev == curLevel: 
-                x = self.post[lev](x)
-                
-                # Calculate wted x if it is fade stage
-                if fade: 
-                    x = curLevelWt * x + prevLevelWt * F.upsample(prevLevel_x, scale_factor=2, mode='nearest')
-        return x
+        else:   #Otherwise, we are in a fade stage, and we need the output from the previous resolution
+        
+            prev_x = x #Get the output for the previous resolution
+            prev_x = self.toRGBs[curResLevel-1](prev_x) #Transform it to RGB
+            prev_x = F.upsample(prev_x, scale_factor=2, mode='nearest') #Upsample it
 
+            x = self.chain[curResLevel](x) #Compute the output for the current resolution
+            x = self.toRGBs[curResLevel](x) #Transform it to RGB       
+        
+            return fadeWt*x + (1-fadeWt)*prev_x #Return their interpolation
 
 class ProcessCriticLevel(nn.Module):
     """
@@ -116,36 +114,22 @@ class ProcessCriticLevel(nn.Module):
         super().__init__()
         self.fromRGBs = fromRGBs
         self.chain = chain
-        self.nLevels = len(self.chain)
 
-    def forward(self, x, fadeWt):
-        
-        # Calculate levels invloved (in case of fade stage) and the wts for each level
-        curLevel = int(self.nLevels - np.ceil(fadeWt))
-        prevLevel = int(self.nLevels - np.floor(fadeWt))
-        curLevelWt = fadeWt-int(fadeWt); prevLevelWt = 1 - curLevelWt
-        fade = False if prevLevel==curLevel else True
-        
-        # If it is stab phase
-        if not fade:
-            x = self.pre[curLevel](x)
-            x = self.chain[curLevel](x)
-        
-        else:
-            curLevel_x = self.pre[curLevel](x)
-            curLevel_x = self.chain[curLevel](curLevel_x)
+    def forward(self, x, fadeWt, curResLevel):
+
+        y = self.fromRGBs[curResLevel](x) #Get x from the current level
+        for level in range(curResLevel,-1,-1): #Start by applying the highest resolution layer and then go down to the most simple one
+            y = chain[level](y)
             
-            x = F.avg_pool2d(x, kernel_size=2, stride=2)
-            prevLevel_x = self.pre[prevLevel](x)
-            x = curLevelWt * curLevel_x + prevLevelWt * prevLevel_x
-            x = self.chain[prevLevel](x)
-            
-        # Loop through all levels
-        for lev in range(prevLevel + 1, self.nLevels):
-            x = self.chain[lev](x)
+            if fadeWt == 0 : return y #If fadeWt is zero we are in a stable stage and don't need anything ekse
 
-        return x
-
+        #Otherwise, we are in a fade stage, and we need the output from the previous resolution
+        prev_y = F.avg_pool2d(x, kernel_size=2, stride=2)   #Since the resolution of the input image is twice as the previous one, we downscale
+        prev_y = self.fromRGBs[curResLevel-1](prev_y)       #Use the proper RGB to channels filter
+        for level in range(curResLevel-1,-1,-1):            #Apply all the filters, from the highest resolution one to the lowest
+            prev_y = self.chain[prevResLevel](prev_y)       
+        
+        return fadeWt*y + (1-fadeWt)*prev_y #Return their interpolation
     
 class ReshapeLayer(nn.Module):
     """

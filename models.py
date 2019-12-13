@@ -54,7 +54,7 @@ class Generator(nn.Module):
         self.fmapDecay = fmapDecay
         self.fmapMax = fmapMax
         if latentSize == None: latentSize = self.getNoChannels(0)
-        nBlocks = int(np.log2(resolution))-1                                #4x4 resolution requires 0 (loop) blocks, 8x8 requires 1, and so on
+        nBlocks = int(np.log2(resolution))-1                                #4x4 resolution requires 1 blocks, 8x8 requires 2, and so on
         assert resolution == 2**(nBlocks+1) and resolution >= 4
         
         chain = nn.ModuleList()
@@ -69,19 +69,19 @@ class Generator(nn.Module):
         net = genConvBlock(net=net, inCh=outCh, outCh=outCh, kernelSize=3)  #Create the second conv2d block
 
         toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)               #Take the image back to RGB
-        chain.append(nn.Sequental(*net))
-        toRGBs.append(nn.Sequental(*toRGB))
+        chain.append(nn.Sequential(*net))
+        toRGBs.append(nn.Sequential(*toRGB))
         
-        # Blocks 8x8 and up
-        for i in range(2, nBlocks):
+        # Blocks 8x8 (i = 1), 16x16 (i = 2), and so on
+        for i in range(1, nBlocks):
             net = [nn.Upsample(scale_factor=2, mode='bilinear')]                #Upsample using bilinear interpolation
-            inCh, outCh = self.getNoChannels(i-1), self.getNoChannels(i)        #Takes care of the channels transitions after upsampling
+            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i+1)        #Takes care of the channels transitions after upsampling
             net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Add first 2dConv
-            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i)          #Keep the same number of channels between convolutions
+            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)          #Keep the same number of channels between convolutions
             net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Add sencond 2dConv
             toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)               #Take the image back to RGB
-            chain.append(nn.Sequental(*net))                                    
-            toRGBs.append(nn.Sequental(*toRGB))
+            chain.append(nn.Sequential(*net))                                    
+            toRGBs.append(nn.Sequential(*toRGB))
         
         self.net = modelUtils.ProcessGenLevel(chain=chain, toRGBs=toRGBs)
 
@@ -118,8 +118,8 @@ def criticConvBLock(net, inCh, outCh, kernelSize, stride=1,  negSlope=0.2, paddi
     """
     assert kernelSize >= 1 and kernelSize % 2 == 1
     if padding == None: padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
-    net.insert(nn.LeakyReLU(negative_slope=negSlope))
-    net.insert(0,modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding))
+    net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]    
+    net += [nn.LeakyReLU(negative_slope=negSlope)]
     return net
     
 
@@ -134,6 +134,7 @@ def fromRGBBlock(inCh, outCh, kernelSize=1, stride=1, negSlope=0.2):
     assert kernelSize >= 1 and kernelSize % 2 == 1
     padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
     net = [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]
+    net += [nn.LeakyReLU(negative_slope=negSlope)]
     return net
 
 class Critic(nn.Module):
@@ -159,36 +160,34 @@ class Critic(nn.Module):
         chain = nn.ModuleList()
         fromRGBs = nn.ModuleList()
         net = []
-        
+
         # Last block 4x4
-        #Second convolution block (last operation is preprended first)
-        inCh, outCh = self.getNoChannels(0), self.getNoChannels(0)      
-        net.insert(0,nn.LeakyReLU(negative_slope=0.2))                                                   #Calculate activation function
-        net.insert(0,modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=4, stride=1, padding=0))     #Unroll to a vector of size min(fmapBase,fmapMax) x 1 x 1
-
-        #The input channels for the first convolution block depend on if we calculate the statistics layer or not
         inCh, outCh = self.getNoChannels(1), self.getNoChannels(0)
-        if batchStdDevGroupSize > 1: inCh = inCh+1    
-        
-        net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1)   #First convolution block.
-        
-        #Calculate the statistics and properly define inCh and outCh in case we don't enter the for loop
-        inCh, outCh = self.getNoChannels(1), self.getNoChannels(1)                    
-        if batchStdDevGroupSize > 1: net.insert(0,modelUtils.BatchStdConcat(batchStdDevGroupSize))
-
         fromRGB = fromRGBBlock(inCh=nInputChannels, outCh=inCh)               #Take the RGB image to the number of channels needed in the net
+        
+        if batchStdDevGroupSize > 1: 
+            net.append(modelUtils.BatchStdConcat(batchStdDevGroupSize))
+            inCh = inCh + 1
+
+        net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1)
+        inCh, outCh = self.getNoChannels(0), self.getNoChannels(0)      
+        net.append(modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=4, stride=1, padding=0))
+        net.append(nn.LeakyReLU(negative_slope=0.2))
+        net.append(nn.Linear(outCh,1))     #Return a critic
+                
         chain.append(nn.Sequential(*net))
         fromRGBs.append(nn.Sequential(*fromRGB))
         
         # Higher resolution blocks
-        for i in range(nBlocks, 1, -1):
-            net.insert(0,nn.AvgPool2d(kernel_size=2,stride=2))                 #Downsize by averaging
-            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i-1)       #Double the number of channels for the second convolution 
-            net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #Second convolutional block (since criticConvBlock preprends)
-            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i)         #Keep the number of channels constant for the first convolution
-            net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #First convolutional block (since criticConvBlock preprends)
-            
+        for i in range(1,nBlocks):
+            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)
             fromRGB = fromRGBBlock(inCh=nInputChannels, outCh=inCh)
+            net = []
+            net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #First convolutional block
+            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i)     #Double the number of channels for the second convolution 
+            net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #Second convolutional block
+            net.append(nn.AvgPool2d(kernel_size=2,stride=2))                   #Downsample
+            
             chain.append(nn.Sequential(*net))
             fromRGBs.append(nn.Sequential(*fromRGB))
         
