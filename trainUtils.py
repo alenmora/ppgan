@@ -38,6 +38,7 @@ class Trainer:
         #CUDA configuration parameters
         self.useCuda = config.useCuda and torch.cuda.is_available()
         self.device = torch.device('cuda') if self.useCuda else torch.device('cpu')
+        if self.useCuda: print('Using CUDA...')
         
         # Hyperparams
         self.cLR=config.cLR; self.gLR=config.gLR
@@ -122,7 +123,7 @@ class Trainer:
         """
         Search for weight file in the experiment directory, and loads it if found
         """
-        dir = os.path.join(self.LOG_DIR,self.EXP_DIR,self.preWtsFile)
+        dir = self.preWtsFile
         if os.path.isfile(dir):
             try:
                 wtsDict = torch.load(dir, map_location=lambda storage, loc: storage)
@@ -163,7 +164,7 @@ class Trainer:
         stats = stats + "|"+leadingSpaces*" "+str(int(self.currentStep/self.logStep))
         stats = stats + "| {:9.4f}| {:9.4f}".format(genLoss_,critLoss_)
         stats = stats + "| {:9.4f}| {:9.4f}".format(critRealLoss_,critFakeLoss_)
-        stats = stats + "| {:9.4f}| {:>10s}| {:9.4f}".format(gradLoss_, critGradShape_, driftLoss_)
+        stats = stats + "| {:9.4f}| {:>12s}| {:9.5f}".format(gradLoss_, critGradShape_, driftLoss_)
         print(stats); 
         f = os.path.join(self.LOG_DIR,self.EXP_DIR,'log.txt')
         writeFile(f, stats, 'a')
@@ -246,7 +247,7 @@ class Trainer:
         alpha = torch.rand(self.batchSize, 1, 1, 1).to(device=self.device) 
         interpols = (alpha*real + (1-alpha)*fake).to(device=self.device)
         gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
-        gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()
+        gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()/(self.obj+1e-8)**2
 
         #Drift loss
         driftLoss_ = self.epsilon*((cRealOut**2).mean()) + self.epsilon*((cFakeOut**2).mean())
@@ -290,8 +291,8 @@ class Trainer:
         assert currentStep < totalSteps, f'ERROR: the current step is larger than the total number of training steps! {currentStep} > {totalSteps}'
 
         print('Starting training...')        
-        print(f'time and date |res  |stage  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape  |driftLoss ')
-        print('|'.join(['-'*14,'-'*5,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*11,'-'*10]))
+        print(f'time and date |res  |stage  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape    |driftLoss ')
+        print('|'.join(['-'*14,'-'*5,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*13,'-'*10]))
         
         # loop over training steps
         while currentStep < totalSteps:
