@@ -75,12 +75,12 @@ class Generator(nn.Module):
         
         # Blocks 8x8 (i = 1), 16x16 (i = 2), and so on
         for i in range(1, nBlocks):
-            net = [nn.Upsample(scale_factor=2, mode='bilinear')]                #Upsample using bilinear interpolation
-            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i+1)        #Takes care of the channels transitions after upsampling
-            net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Add first 2dConv
-            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)          #Keep the same number of channels between convolutions
-            net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Add sencond 2dConv
-            toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)               #Take the image back to RGB
+            net = [nn.Upsample(scale_factor=2, mode='bilinear',align_corners=False)]      #Upsample using bilinear interpolation
+            inCh, outCh = self.getNoChannels(i), self.getNoChannels(i+1)                  #Takes care of the channels transitions after upsampling
+            net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)             #Add first 2dConv
+            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)                #Keep the same number of channels between convolutions
+            net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)             #Add sencond 2dConv
+            toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)                         #Take the image back to RGB
             chain.append(nn.Sequential(*net))                                    
             toRGBs.append(nn.Sequential(*toRGB))
         
