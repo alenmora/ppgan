@@ -45,7 +45,8 @@ class WSConv2d(nn.Module):
         self.name = '(inp = %s)' % (self.conv.__class__.__name__ + str(convShape))
         
     def forward(self, x):
-        return self.conv(x) * self.wtScale + self.bias.view(1, self.bias.shape[0], 1, 1)
+        output = self.conv(x) * self.wtScale + self.bias.view(1, self.bias.shape[0], 1, 1)
+        return output 
 
     def __repr__(self):
         return self.__class__.__name__ + self.name
@@ -61,14 +62,15 @@ class BatchStdConcat(nn.Module):
 
     def forward(self, x):
         shape = list(x.size())                                              # NCHW - Initial size
-        xStd = x.view(self.groupSize, -1, shape[1], shape[2], shape[3])     # GMCHW - split minbatch into M groups of size G groupSize
-        xStd -= torch.mean(xStd, dim=0, keepdim=True)                       # GMCHW - Subract mean of over groups
+        xStd = x.view(self.groupSize, -1, shape[1], shape[2], shape[3])     # GMCHW - split minbatch into M groups of size G (= groupSize)
+        xStd -= torch.mean(xStd, dim=0, keepdim=True)                       # GMCHW - Subract mean over groups
         xStd = torch.mean(xStd ** 2, dim=0, keepdim=False)                  # MCHW - Calculate variance over groups
         xStd = (xStd + 1e-08) ** 0.5                                        # MCHW - Calculate std dev over groups
-        xStd = torch.mean(xStd.view(int(shape[0]/self.groupSize), -1), dim=1, keepdim=True).view(-1, 1, 1, 1)
+        xStd = torch.mean(xStd.view(xStd.shape[0], -1), dim=1, keepdim=True).view(-1, 1, 1, 1)
                                                                             # M111 - Take mean over CHW
         xStd = xStd.repeat(self.groupSize, 1, shape[2], shape[3])           # N1HW - Expand to same shape as x with one channel 
-        return torch.cat([x, xStd], 1)
+        output = torch.cat([x, xStd], 1)
+        return output
     
     def __repr__(self):
         return self.__class__.__name__ + '(Group Size = %s)' % (self.groupSize)
@@ -83,7 +85,7 @@ class ProcessGenLevel(nn.Module):
         self.chain = chain
         self.toRGBs = toRGBs
 
-    def forward(self, x, fadeWt, curResLevel):
+    def forward(self, x, curResLevel, fadeWt):
 
         for level in range(curResLevel):
                 x = self.chain[level](x)
@@ -115,19 +117,19 @@ class ProcessCriticLevel(nn.Module):
         self.fromRGBs = fromRGBs
         self.chain = chain
 
-    def forward(self, x, fadeWt, curResLevel):
+    def forward(self, x, curResLevel, fadeWt):
 
-        y = self.fromRGBs[curResLevel](x) #Get x from the current level
+        y = self.fromRGBs[curResLevel](x) #Get the input formated from the current level
         for level in range(curResLevel,-1,-1): #Start by applying the highest resolution layer and then go down to the most simple one
-            y = chain[level](y)
+            y = self.chain[level](y)
             
-            if fadeWt == 0 : return y #If fadeWt is zero we are in a stable stage and don't need anything ekse
+            if fadeWt == 0 : return y #If fadeWt is zero we are in a stable stage and don't need anything else
 
         #Otherwise, we are in a fade stage, and we need the output from the previous resolution
         prev_y = F.avg_pool2d(x, kernel_size=2, stride=2)   #Since the resolution of the input image is twice as the previous one, we downscale
         prev_y = self.fromRGBs[curResLevel-1](prev_y)       #Use the proper RGB to channels filter
         for level in range(curResLevel-1,-1,-1):            #Apply all the filters, from the highest resolution one to the lowest
-            prev_y = self.chain[prevResLevel](prev_y)       
+            prev_y = self.chain[level](prev_y)       
         
         return fadeWt*y + (1-fadeWt)*prev_y #Return their interpolation
     
@@ -140,4 +142,4 @@ class ReshapeLayer(nn.Module):
         self.shape = shape
 
     def forward(self, x):
-        return x.view(-1, *self.shape)
+        return x.view(*self.shape)
