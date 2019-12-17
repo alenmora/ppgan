@@ -30,7 +30,7 @@ def arrayToTensor(array):
     """
     return torch.from_numpy(np.transpose(array.astype('float32'), (2, 0, 1)))
 
-def imagePreprocessing(img):
+def imagePreprocessing(img,res=None,**kwargs):
     """
     Preprocess an image read with opencsv
     """
@@ -42,8 +42,10 @@ def imagePreprocessing(img):
     img = img[int(minIndex[0]):int(maxIndex[0]), 
               int(minIndex[1]):int(maxIndex[1])] #Make the image squared by cropping
     img = img[:, :, ::-1].astype('float32') #The image channels are read in the order BGR, so we invert them to get RGB
-    img = cv2.resize(img, (self.res, self.res), cv2.INTER_NEAREST) #Resize it (decrease resolution)
+    if res != None:
+        img = cv2.resize(img, (res, res), cv2.INTER_NEAREST) #Match resolution to the ones needed for the training blocks
     img = img/127.5 - 1 #Center around 0
+    return img
         
 
 ################################################################################
@@ -58,16 +60,16 @@ class imageDataset(Dataset):
         self.paths = glob(os.path.join(path, '*.jpg'))
         self.res =  res
         self.preprocess = preprocess
-        
+
     def __len__(self):
         return len(self.paths)
     
     def __getitem__(self, idx):
         # Get an image element. It is an array of height x width x channels
         img = cv2.imread(self.paths[idx])
-
+        
         if self.preprocess:
-            img = self.preprocess(img)
+            img = self.preprocess(img,res=self.res)
 
         # convert to tensor
         img = arrayToTensor(img)
