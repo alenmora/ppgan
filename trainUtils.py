@@ -131,10 +131,11 @@ class Trainer:
                 self.gen.load_state_dict(wtsDict['gen'])
                 self.cOptimizer.load_state_dict(wtsDict['cOptimizer'])
                 self.gOptimizer.load_state_dict(wtsDict['gOptimizer'])
+                print(f'Loaded pre-trained weights from {dir}')
             except:
-                print('ERROR: The weights in {:s} could not be loaded. Proceding from zero...'.format(dir))
+                print(f'ERROR: The weights in {dir} could not be loaded. Proceding from zero...')
         else:
-            print('ERROR: The file {:s} does not exist. Proceding from zero...'.format(dir))
+            print(f'ERROR: The file {dir} does not exist. Proceding from zero...')
 
     def logParameters(self):
         """
@@ -173,12 +174,12 @@ class Trainer:
         for _ in range(8):    
             # Fake
             z = self.getNoise(1)
-            fake = self.gen(x=z, curResLevel=self.curResLevel, fadeWt=self.fadeWt)
+            fake = self.gen(x=z, curResLevel=self.curResLevel, fadeWt=self.fadeWt).cpu()
             f = dataUtils.tensorToImage(fake[0])
             
             # real
             self.callDataIteration()
-            r = dataUtils.tensorToImage(self.real[0])
+            r = dataUtils.tensorToImage(self.real.cpu()[0])
             
             try: img = np.vstack((img, np.hstack((f, r))))
             except: img = np.hstack((f, r))
@@ -290,10 +291,16 @@ class Trainer:
         assert currentStep >= 0, 'ERROR: if different than None, currentStep should be a nonnegative integer' 
         assert currentStep < totalSteps, f'ERROR: the current step is larger than the total number of training steps! {currentStep} > {totalSteps}'
 
-        print('Starting training...')        
-        print(f'time and date |res  |stage  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape    |driftLoss ')
-        print('|'.join(['-'*14,'-'*5,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*13,'-'*10]))
-        
+        print('Starting training...')   
+        colNames = f'time and date |res  |stage  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape    |driftLoss '
+        sep = '|'.join(['-'*14,'-'*5,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*13,'-'*10])
+        print(colNames)
+        print(sep)
+
+        f = os.path.join(self.LOG_DIR,self.EXP_DIR,'log.txt')  #Create a new log file
+        writeFile(f, colNames, 'w')
+        writeFile(f, sep, 'a')
+
         # loop over training steps
         while currentStep < totalSteps:
             
