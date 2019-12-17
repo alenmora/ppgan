@@ -24,7 +24,7 @@ EXP_DIR='experiment1/'
 DATA_PATH='./data/anime/'
 
 # Save model checkpoint every number of steps. No checkpoint saved If the value is None or zero
-saveModelEvery = 5000
+saveModelEvery = 20000
 
 # Wether to use cuda or not. It is ignored if cuda is not available in the current machine
 useCuda = True
@@ -32,7 +32,7 @@ useCuda = True
 # Use pretrained weights if available. Together with this, the pretrained weights' file
 # complete address and name should be given in the preWtsFile variable. Otherwise, this is ignored
 usePreWts = True
-preWtsFile = None
+preWtsFile = LOG_DIR+EXP_DIR+'modelCheckpoint_32_stable_20000.pth.tar'
 
 ## Hyperparameters
 # Critic Learning Rate
@@ -43,7 +43,7 @@ stdDevGroup = 4
 # lambda and obj are hyperparameters to perform gradient penalization on the critic. It is done by adding a term of 
 # the form lamb*(grad**2 - obj)**2 to the loss function, where grad is the gradient with respect to the input values
 lamb = 10
-obj = 1
+obj = 450
 # epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
 # epsilon*(output)**2 to the loss function
 epsilon = 0.001
@@ -56,13 +56,13 @@ batchSizes={4:16, 8:16, 16:16, 32:16, 64:8, 128:4}
 
 # Other
 # Number of real images shown before increasing the resolution. Must be divisible by all batch sizes
-samplesWhileStable = 30000
+samplesWhileStable = 20000
 
 #Number of real images shown wile fading in new layers. Must be divisible by all batch sizes
-samplesWhileFade = 30000
+samplesWhileFade = 40000
 
 # log every x steps
-logStep=2500
+logStep=5000
 
 # Starting and ending resolution of the GAN blocks. These should be members of the batchSizes keys
 # and endRes > startRes. You should pick endRes to be of the same order of the maximum resolution of your
