@@ -7,7 +7,7 @@ import pdb
 
 class PixelNormalization(nn.Module):
     """
-    This is the per pixel normalization layer. This will devide each x, y by channel root mean square
+    This is the per pixel normalization layer. This will divide each x, y by channel root mean square
     """
     def __init__(self, eps=1e-8):
         super().__init__()
