@@ -233,7 +233,7 @@ class Trainer:
         # real
         real = self.real.requires_grad_(True)
         cRealOut = self.crit(x=real, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
-        critRealLoss_ = 1*cRealOut.mean()
+        critRealLoss_ = -1*cRealOut.mean()
         
         # fake
         self.z = self.getNoise()
