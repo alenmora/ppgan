@@ -193,7 +193,7 @@ class Trainer:
         """
         fName = f'finalModel_{self.res}x{self.res}_.pth.tar'
         if status == 'checkpoint':
-            fname = 'modelCheckpoint_'+str(self.res)+'_'+self.stage+'_'+str(self.currentStep)+'.pth.tar'
+            fName = 'modelCheckpoint_'+str(self.res)+'_'+self.stage+'_'+str(self.currentStep)+'.pth.tar'
 
         dir = os.path.join(self.LOG_DIR,self.EXP_DIR,fName)
         f = os.path.join(dir)
@@ -233,7 +233,7 @@ class Trainer:
         # real
         real = self.real.requires_grad_(True)
         cRealOut = self.crit(x=real, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
-        critRealLoss_ = cRealOut.mean()
+        critRealLoss_ = 1*cRealOut.mean()
         
         # fake
         self.z = self.getNoise()
