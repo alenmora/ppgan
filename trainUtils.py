@@ -35,26 +35,19 @@ class Trainer:
     Trainer class with hyperparams, log, train function etc.
     """
     def __init__(self):
-        # Paths        
-        self.LOG_DIR = config.LOG_DIR
-        self.DATA_PATH = config.DATA_PATH
-        self.EXP_DIR = config.EXP_DIR if config.EXP_DIR != None else self.createEXP_DIR
-        self.modelFname = config.modelFname
-        self.preWtsFile = config.preWtsFile
-
         #CUDA configuration parameters
-        self.use_cuda = config.use_cuda and torch.cuda.is_available()
-        self.device = torch.device('cuda') if self.use_cuda else torch.device('cpu')
+        self.useCuda = config.useCuda and torch.cuda.is_available()
+        self.device = torch.device('cuda') if self.useCuda else torch.device('cpu')
         
         # Hyperparams
         self.cLR=config.cLR; self.gLR=config.gLR
-        self.latentSize = config.latentSize
+        self.latentSize = int(config.latentSize) if config.latentSize != None else int(config.endRes/2)
         self.batchSizes =  config.batchSizes
-        self.resolutions = config.resolutions
-        self.startRes = config.startRes
-        self.endRes = config.endRes
-        self.samplesWhileStable = config.samplesWhileStable
-        self.samplesWhileFade = config.samplesWhileFade
+        self.resolutions = list(config.batchSizes.keys())
+        self.startRes = int(config.startRes)
+        self.endRes = int(config.endRes)
+        self.samplesWhileStable = int(config.samplesWhileStable)
+        self.samplesWhileFade = int(config.samplesWhileFade)
         
         # Hyperparams for loss function of critic
         self.lamb = 10 if config.lamb == None else config.lamb
@@ -64,15 +57,25 @@ class Trainer:
         # model 
         self.createModels()
         try:
-            self.batchSize = self.batchSizes[self.startRes]
+            self.batchSize = int(self.batchSizes[self.startRes])
         except:
             "WARNING: There is no batch size defined for the starting resolution. Using a batch size of 10"
             self.batchSize = 10
 
-        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.use_cuda)
+        # Paths        
+        self.LOG_DIR = config.LOG_DIR
+        self.DATA_PATH = config.DATA_PATH
+        self.EXP_DIR = self.createEXP_DIR(config.EXP_DIR) if config.EXP_DIR != None else self.createEXP_DIR()
+        self.preWtsFile = config.preWtsFile
+
+        #data loading
+        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.useCuda)
+        self.dataIterator = iter(self.dataloader)
+        
+        #monitoring parameters
         self.genLoss = []
         self.criticLoss = []; self.criticRealLoss = []; self.criticFakeLoss = []
-        self.gradientReal = []; self.gradientFake[]
+        self.gradientLoss = []; self.critGradShape = []; self.driftLoss = []
         self.curResLevel = 0
         
         # Pretrained weigths
@@ -86,12 +89,12 @@ class Trainer:
         """
         This function will create models and their optimizers
         """
-        fmapBase = self.endRes*8 if config.fmapBase == None else config.fmapBase
-        fmapMax = self.endRes/2 if config.fmapBase == None else config.fmapMax
+        fmapBase = int(self.endRes*8) if config.fmapBase == None else int(config.fmapBase)
+        fmapMax = int(self.endRes/2) if config.fmapBase == None else int(config.fmapMax)
         fmapDecay = 1.0 if config.fmapDecay == None else config.fmapDecay
         stdDevGroup = 4 if config.stdDevGroup == None else config.stdDevGroup
 
-        self.gen = models.Generator(resolution = self.endRes, fmapBase = fmapBase, fmapMax = fmapMax, fmapDecay = fmapDecay).to(device=self.device)
+        self.gen = models.Generator(resolution = self.endRes, fmapBase = fmapBase, fmapMax = fmapMax, fmapDecay = fmapDecay, latentSize = self.latentSize).to(device=self.device)
         self.crit = models.Critic(resolution = self.endRes, fmapBase = fmapBase, fmapMax = fmapMax, fmapDecay = fmapDecay, batchStdDevGroupSize = stdDevGroup).to(device=self.device)
         self.gOptimizer = Adam(self.gen.parameters(), lr = self.gLR, betas=(0.0, 0.99))
         self.cOptimizer = Adam(self.crit.parameters(), lr = self.cLR, betas=(0.0, 0.99))
@@ -99,17 +102,21 @@ class Trainer:
         print('Models Instantiated. # of trainable parameters Critic: %e; Generator: %e' 
               %(sum([np.prod([*p.size()]) for p in self.crit.parameters()]), 
                 sum([np.prod([*p.size()]) for p in self.gen.parameters()])))
-        print(f'Model training hyperparameters: fmapBase: {fmapBase}; fmapMax: {fmapMax}; fmapDecay: {fmapDecay}')
+        print(f'Model training hyperparameters: fmapBase: {fmapBase}; fmapMax: {fmapMax}; fmapDecay: {fmapDecay}; stdDevGroup: {stdDevGroup}; latentSize: {self.latentSize}')
         
-    def createEXP_DIR(self):
+    def createEXP_DIR(self, fName=None):
         """
         Create experiment directory
         """
-        dir = os.path.join(self.LOG_DIR,'ppwgan-log-' + f'{datetime.now():%d-%m-%HH:%MM}/')
-        try: os.makedirs(dir)
-        except: print('WARNING: Logging in previously created folder')
-        writeFile(os.path.join(self.logDir, 'log.txt'), self.logParameters(), 'w')
-        return 'ppwgan-log-' + f'{datetime.now():%d-%m-%HH:%MM}/'
+        if fName == None: fName = 'ppwgan-log-' + f'{datetime.now():%d/%m-%HH:%MM}/'
+        dir = os.path.join(self.LOG_DIR,fName)
+        try: 
+            os.makedirs(dir)
+            print(f'Created new experiment folder at {dir}')
+        except FileExistsError: 
+            print(f'Logging into previously created folder {fName}')
+        writeFile(os.path.join(dir, 'architecture.txt'), self.logParameters(), 'w')
+        return fName
     
     def loadPretrainedWts(self):
         """
@@ -132,8 +139,8 @@ class Trainer:
         """
         This function will return hyperparameters and architecture as string
         """
-        hyperParams = f'HYPERPARAMETERS - cLR-{self.cLR}|gLR-{self.gLR}|lambda-{self.lamb}'
-                      f'|obj-{self.obj}|epsilon-{self.epsilon}|fadeSteps-{self.samplesWhileFade}|stableSteps-{self.samplesWhileStable}'
+        hyperParams = (f'HYPERPARAMETERS - cLR-{self.cLR}|gLR-{self.gLR}|lambda-{self.lamb}'
+                      f'|obj-{self.obj}|epsilon-{self.epsilon}|fadeSteps-{self.samplesWhileFade}|stableSteps-{self.samplesWhileStable}')
         architecture = '\n\n' + str(self.crit) + '\n\n' + str(self.gen) + '\n\n'
         print(hyperParams)    
         return hyperParams + architecture
@@ -147,9 +154,16 @@ class Trainer:
         critLoss_ = np.mean(self.criticLoss[-self.logStep:])
         critRealLoss_ = np.mean(self.criticRealLoss[-self.logStep:])
         critFakeLoss_ = np.mean(self.criticFakeLoss[-self.logStep:])
-        stats = (f'{datetime.now():%HH:%MM}| {self.res}| {self.stage}'
-                 f'| {self.currentStep} | {genLoss_:.4f}| {critLoss_:.4f}'
-                 f'| {critRealLoss_:.4f}| {critFakeLoss_:.4f}| {self.cLR:.2e}| {self.gLR:.2e}')
+        gradLoss_ = np.mean(self.gradientLoss[-self.logStep:])
+        critGradShape_ = f'({self.critGradShape[-1][0]} x {self.critGradShape[-1][1]})'
+        driftLoss_ = np.mean(self.driftLoss[-self.logStep:])
+        stats = f' {datetime.now():%H:%M (%d/%m)}'
+        stats = stats + "| {:4d}| {:>6s}".format(self.res,self.stage)
+        leadingSpaces = 9+len(str(self.logStep))-len(str(int(self.currentStep/self.logStep)))
+        stats = stats + "|"+leadingSpaces*" "+str(int(self.currentStep/self.logStep))
+        stats = stats + "| {:9.4f}| {:9.4f}".format(genLoss_,critLoss_)
+        stats = stats + "| {:9.4f}| {:9.4f}".format(critRealLoss_,critFakeLoss_)
+        stats = stats + "| {:9.4f}| {:>10s}| {:9.4f}".format(gradLoss_, critGradShape_, driftLoss_)
         print(stats); 
         f = os.path.join(self.LOG_DIR,self.EXP_DIR,'log.txt')
         writeFile(f, stats, 'a')
@@ -158,7 +172,7 @@ class Trainer:
         for _ in range(8):    
             # Fake
             z = self.getNoise(1)
-            fake = self.gen(x=z, fadeWt=self.fadeWt)
+            fake = self.gen(x=z, curResLevel=self.curResLevel, fadeWt=self.fadeWt)
             f = dataUtils.tensorToImage(fake[0])
             
             # real
@@ -177,11 +191,11 @@ class Trainer:
         """
         Saves model
         """
-        fname = f'finalModel_{self.res}x{self.res}_.pth.tar'
+        fName = f'finalModel_{self.res}x{self.res}_.pth.tar'
         if status == 'checkpoint':
             fname = 'modelCheckpoint_'+str(self.res)+'_'+self.stage+'_'+str(self.currentStep)+'.pth.tar'
 
-        dir = os.path.join(self.LOG_DIR,self.EXP_DIR,fname)
+        dir = os.path.join(self.LOG_DIR,self.EXP_DIR,fName)
         f = os.path.join(dir)
         torch.save({'crit':self.crit.state_dict(), 'cOptimizer':self.cOptimizer.state_dict(),
                     'gen':self.gen.state_dict(), 'gOptimizer':self.gOptimizer.state_dict()}, 
@@ -208,7 +222,7 @@ class Trainer:
             except: bs = 1
         return FT(bs, self.latentSize).normal_().to(device=self.device)
           
-    def trainCritic(self,fadeWt):
+    def trainCritic(self):
         """
         Train the critic for one step
         """
@@ -217,43 +231,33 @@ class Trainer:
         switchTrainable(self.gen, False)
 
         # real
-        real = self.real
-        cRealOut = self.crit(x=real.detach(), fadeWt=fadeWt, curResLevel = self.curResLevel)
-        critRealLoss_ = torch.mean(cRealOut)
+        real = self.real.requires_grad_(True)
+        cRealOut = self.crit(x=real, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
+        critRealLoss_ = cRealOut.mean()
         
         # fake
         self.z = self.getNoise()
-        self.fake = self.gen(x=self.z, fadeWt=fadeWt, curResLevel = self.curResLevel)
+        self.fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
         fake = self.fake
-        cFakeOut = self.crit(x=fake.detach(), fadeWt=fadeWt, curResLevel = self.curResLevel)
-        critFakeLoss_ = torch.mean(cFakeOut)
-
-        #Critic loss
-        critLoss_ = critFakeLoss_ - critRealLoss_
-
-        critLoss_.backward()
+        cFakeOut = self.crit(x=fake.detach(), fadeWt=self.fadeWt, curResLevel = self.curResLevel)
+        critFakeLoss_ = cFakeOut.mean()
 
         # gradient penalty
-        gradientReal = autograd.grad(outputs=cRealOut, inputs=real,
-                              grad_outputs=torch.ones(cRealOut.size()),
-                              create_graph=False, retain_graph=False, only_inputs=True)[0]
-        gradientReal = gradientReal.view(gradients.size(0), -1)
-
-        gradientFake = autograd.grad(outputs=cFakeOut, inputs=fake,
-                              grad_outputs=torch.ones(cFakeOut.size()),
-                              create_graph=False, retain_graph=False, only_inputs=True)[0]
-        gradientFake = gradientFake.view(gradients.size(0), -1)
-        
-        critLoss_ = critLoss_ + self.lamb*((gradientReal.norm(2,dim=1)-self.obj)**2).mean() 
-        critLoss_ = critLoss_ + self.lamb*((gradientFake.norm(2,dim=1)-self.obj)**2).mean()
+        alpha = torch.rand(self.batchSize, 1, 1, 1).to(device=self.device) 
+        interpols = (alpha*real + (1-alpha)*fake).to(device=self.device)
+        gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
+        gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()
 
         #Drift loss
-        critLoss_ = critLoss_ + self.epsilon*((cRealOut.norm(2))
+        driftLoss_ = self.epsilon*((cRealOut**2).mean()) + self.epsilon*((cFakeOut**2).mean())
 
-        ; self.cOptimizer.step()
-        return critLoss_.item(), critRealLoss_.item(), critFakeLoss_.item(), gradientReal.item(), gradientFake.item()
+        #Final loss
+        critLoss_ = critRealLoss_ + critFakeLoss_ + driftLoss_ + gradLoss_ + driftLoss_
+
+        critLoss_.backward(); self.cOptimizer.step()
+        return critLoss_.item(), critRealLoss_.item(), critFakeLoss_.item(), gradLoss_.item(), gradInterpols.shape, driftLoss_.item()
     
-    def trainGenerator(self,fadeWt):
+    def trainGenerator(self):
         """
         Train Generator for 1 step
         """
@@ -262,10 +266,10 @@ class Trainer:
         switchTrainable(self.crit, False)
         
         self.z = self.getNoise()
-        self.fake = self.gen(x=self.z, fadeWt=fadeWt, curResLevel = self.curResLevel
-        genCritLoss_ = self.crit(x=self.fake, fadeWt=fadeWt, curResLevel = self.curResLevel
+        self.fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
+        genCritLoss_ = self.crit(x=self.fake, fadeWt=self.fadeWt, curResLevel = self.curResLevel).mean()
         
-        genLoss_ = -genCritLoss_
+        genLoss_ = -1*genCritLoss_
         genLoss_.backward(); self.gOptimizer.step()
         return genLoss_.item()
     
@@ -278,14 +282,16 @@ class Trainer:
         endResLevel = self.resolutions.index(self.endRes)+1   #The index of the ending resolution in the resolutions list
         totalSteps = self.samplesWhileStable #The first resolution doesn't need the fade steps
         totalSteps = totalSteps + samplesPerResolution*(len(self.resolutions[startResLevel:endResLevel])-1) #For the other resolutions, we have fading and stable steps
-        currentStep = config.currentStep if config.currentStep != None else 0 #Initialize the current training step
+        totalSteps = int(totalSteps) #casting for sake of safeness
+        currentStep = config.startStep if config.startStep != None else 0 #Initialize the current training step
         
         assert isinstance(currentStep,int), 'ERROR: if different than None, currentStep should be a nonnegative integer' 
         assert currentStep >= 0, 'ERROR: if different than None, currentStep should be a nonnegative integer' 
         assert currentStep < totalSteps, f'ERROR: the current step is larger than the total number of training steps! {currentStep} > {totalSteps}'
 
         print('Starting training...')        
-        print('Time   |res |stage|It        |gLoss  |cLoss |cRLoss |cFLoss |cLR      |gLR      ')
+        print(f'time and date |res  |stage  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape  |driftLoss ')
+        print('|'.join(['-'*14,'-'*5,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*11,'-'*10]))
         
         # loop over training steps
         while currentStep < totalSteps:
@@ -295,55 +301,47 @@ class Trainer:
             
             self.curResLevel = curResLevel
             self.res = self.resolutions[curResLevel]
-            self.batchSize = self.batchSizes[self.res]
+            self.batchSize = int(self.batchSizes[self.res])
             
             isFadeStage = (curResLevel > startResLevel) #If we are in the starting resolution, there is not fading
-            stepInCurrentRes = ( (currentStep - self.samplesWhileStable) % samplesPerResolution )
+            stepInCurrentRes = int( (currentStep - self.samplesWhileStable) % samplesPerResolution )
             isFadeStage = isFadeStage and ( stepInCurrentRes < self.samplesWhileFade )
-            fadeWt = 0
+            self.fadeWt = 0
 
             self.stage = 'stable'
 
             if isFadeStage:
 
                 self.stage = 'fade'
-
                 #Define the fading weight
-                fadeWt = float(stepInCurrentRes+1)/self.samplesWhileFade
+                self.fadeWt = float(stepInCurrentRes+1)/self.samplesWhileFade
 
                 # load new dl if stage is fade or we have loaded data 
-                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.use_cuda)
+                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.useCuda)
                 self.dataIterator = iter(self.dataloader)
 
             #Get batch of training data
             self.callDataIteration()
 
-            # Train Critic
-            critLoss_, critRealLoss_, critFakeLoss_, gradientReal_, gradientFake_ = self.trainCritic(fadeWt)
-            self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
-            self.gradientReal.append(gradientReal_); self.gradientFake.append(gradientFake_)
-
-            # Train Gen
-            genLoss_ = self.trainGenerator(fadeWt)
+            # Train Gen (evaluate critic)
+            genLoss_ = self.trainGenerator()
             self.genLoss.append(genLoss_)
+
+            # Train Critic
+            critLoss_, critRealLoss_, critFakeLoss_, gradientLoss_, critGradShape_, driftLoss_  = self.trainCritic()
+            self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
+            self.gradientLoss.append(gradientLoss_); self.critGradShape.append(critGradShape_); self.driftLoss.append(driftLoss_)
 
             # log
             if currentStep % self.logStep == 0 :
                 self.currentStep = currentStep
                 self.logTrainingStats()
             
-            saveModel = False
-
-            if config.saveModel:
-                #save model if we finished training the sable stages
-                saveModel = ( currentStep == ( (curResLevel+1)*self.samplesWhileStable + curResLevel*self.samplesWhileFade - 1 ) )
-                #or if we finished training the fading stages
-                saveModel = saveModel | ( currentStep == ( (curResLevel+1)*(self.samplesWhileStable + self.samplesWhileFade) - 1 ) )
+            if config.saveModelEvery:
+                if currentStep > 0 and ((currentStep % config.saveModelEvery) == 0):
+                    self.currentStep = currentStep
+                    self.saveModel(status='checkpoint')
             
-            if saveModel: 
-                self.currentStep = currentStep
-                self.saveModel(status='checkpoint')
-
             currentStep = currentStep + 1
 
         self.currentStep = currentStep
