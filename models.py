@@ -1,4 +1,5 @@
-import modelUtils, torch.nn as nn, numpy as np
+import torch
+import modelUtils, torch.nn as nn, numpy as np, torch.autograd as autograd
 
 ##############################################################
 # Generator
@@ -16,7 +17,7 @@ def genConvBlock(net, inCh, outCh, kernelSize, stride=1, negSlope=0.2, padding=N
     padding (int, list): padding on each dimension. If none, padding is made to keep the size of the input tensor
     """
     assert kernelSize >= 1 and kernelSize % 2 == 1
-    if padding == None: padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
+    if padding == None: padding = int((kernelSize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
     net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]    
     net += [nn.LeakyReLU(negative_slope=negSlope)]
     net += [modelUtils.PixelNormalization()]
@@ -32,7 +33,7 @@ def toRGBBlock(inCh, outCh, kernelSize=1, stride=1):
     stride (int,list): the steps taken in each dimension
     """
     assert kernelSize >= 1 and kernelSize % 2 == 1
-    padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
+    padding = int((kernelSize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
     net = [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding, gain=1)]
     return net
 
@@ -62,11 +63,11 @@ class Generator(nn.Module):
         net = []
 
         # First block 4x4
-        net += [nn.Linear(latentSize,self.getNoChannels(0)*4*4)]            #Make sure that, no matter the size of the latent vector, it can be shaped into 4x4 tensors
+        net += [nn.Linear(latentSize,latentSize*4*4)]                       #Make sure that, no matter the size of the latent vector, it can be shaped into 4x4 tensors
         net += [nn.LeakyReLU(negative_slope=0.2)]                           #Compute activation function
-        net += [modelUtils.ReshapeLayer([4, 4])]                            #Reshape it. This counts as the first convolution block
-        inCh, outCh = self.getNoChannels(0), self.getNoChannels(1)          #inCh = min(fmapBase,fmapMax), outCh = min(fmapBase/2,fmapMapx)
-        net = genConvBlock(net=net, inCh=outCh, outCh=outCh, kernelSize=3)  #Create the second conv2d block
+        net += [modelUtils.ReshapeLayer([-1, latentSize, 4, 4])]            #Reshape the output as nBatch x nChannels (= latentSize) x 4 x 4. This counts as the first convolution block
+        inCh, outCh = latentSize, self.getNoChannels(1)                     #inCh = min(fmapBase,fmapMax), outCh = min(fmapBase/2,fmapMapx)
+        net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Create the second conv2d block
 
         toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)               #Take the image back to RGB
         chain.append(nn.Sequential(*net))
@@ -92,20 +93,20 @@ class Generator(nn.Module):
         """
         return min(int(self.fmapBase / (2.0 ** (stage * self.fmapDecay))), self.fmapMax)
 
-    def forward(self, x, fadeWt=None):
+    def forward(self, x, curResLevel, fadeWt=None):
         """
         Forward the generator through the input x
         x (tensor): latent vector
         fadeWt (double): Weight to regularly fade in higher resolution blocks
         """
-        return self.net.forward(x, fadeWt)
+        return self.net.forward(x, curResLevel, fadeWt)
 
 
 ##############################################################
 # Critic
 ##############################################################
 
-def criticConvBLock(net, inCh, outCh, kernelSize, stride=1,  negSlope=0.2, padding=None):
+def criticConvBlock(net, inCh, outCh, kernelSize, stride=1,  negSlope=0.2, padding=None):
     """
     This funtion prepends and returns LIST of conv blocks for critic
     net (list): list to append the current block
@@ -117,7 +118,7 @@ def criticConvBLock(net, inCh, outCh, kernelSize, stride=1,  negSlope=0.2, paddi
     padding (int, list): padding on each dimension. If none, padding is calculated to keep the size of the input
     """
     assert kernelSize >= 1 and kernelSize % 2 == 1
-    if padding == None: padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
+    if padding == None: padding = int((kernelSize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
     net += [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]    
     net += [nn.LeakyReLU(negative_slope=negSlope)]
     return net
@@ -132,7 +133,7 @@ def fromRGBBlock(inCh, outCh, kernelSize=1, stride=1, negSlope=0.2):
     stride (int,list): the steps taken in each dimension
     """
     assert kernelSize >= 1 and kernelSize % 2 == 1
-    padding = int((kernelsize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
+    padding = int((kernelSize-1)/2)  #Make sure the output tensors for each channel are also 4x4 by adjusting the padding 
     net = [modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=kernelSize, stride=stride, padding=padding)]
     net += [nn.LeakyReLU(negative_slope=negSlope)]
     return net
@@ -169,10 +170,11 @@ class Critic(nn.Module):
             net.append(modelUtils.BatchStdConcat(batchStdDevGroupSize))
             inCh = inCh + 1
 
-        net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1)
+        net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1)
         inCh, outCh = self.getNoChannels(0), self.getNoChannels(0)      
         net.append(modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=4, stride=1, padding=0))
-        net.append(nn.LeakyReLU(negative_slope=0.2))
+        net.append(nn.LeakyReLU(negative_slope=0.2)) #Now the output is of size batchSize x outCh x 1 x 1. 
+        net.append(modelUtils.ReshapeLayer([-1,outCh])) #Get rid of the trivial dimensions. Otherwise the next line will flat the input into a 1D array of size (batchSize x outCh)
         net.append(nn.Linear(outCh,1))     #Return a critic
                 
         chain.append(nn.Sequential(*net))
@@ -185,7 +187,7 @@ class Critic(nn.Module):
             net = []
             net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #First convolutional block
             inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i)     #Double the number of channels for the second convolution 
-            net = criticConvBLock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #Second convolutional block
+            net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #Second convolutional block
             net.append(nn.AvgPool2d(kernel_size=2,stride=2))                   #Downsample
             
             chain.append(nn.Sequential(*net))
@@ -199,6 +201,21 @@ class Critic(nn.Module):
         """
         return min(int(self.fmapBase / (2.0 ** (stage * self.fmapDecay))), self.fmapMax)
     
-    def forward(self, x, fadeWt=None):
-        return self.net.forward(x, fadeWt)
+    def forward(self, x, curResLevel, fadeWt=None):
+        return self.net.forward(x, curResLevel, fadeWt)
+
+    def getOutputGradWrtInputs(self, input, curResLevel, fadeWt=None, device='cpu'):
+        """
+        Return the unrolled gradient matrix of the critic output wrt the input parameters for 
+        each example in the input
+        (should have a size batchSize x (imageWidth x imageHeight x imageChannels))
+        """
+        x = input.detach().requires_grad_().to(device=device)
+        out = self.net.forward(x, curResLevel=curResLevel, fadeWt=fadeWt).to(device=device)
+        ddx = autograd.grad(outputs=out, inputs=x,
+                              grad_outputs = torch.ones(out.size(),device=device),
+                              create_graph = True, retain_graph=True, only_inputs=True)[0]
+        ddx = ddx.view(ddx.size(0), -1)
+
+        return ddx
 
