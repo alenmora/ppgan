@@ -82,8 +82,8 @@ def loadData(path, res, batchSize, numWorkers=4, pinMemory=False, preprocess=ima
     """
     Function to load and preprocess data from path
     """
-    dataset = imageDataset(path, res, preprocess = preprocess)
-    dataloader = DataLoader(dataset, batch_size = batchSize, num_workers = numWorkers, shuffle = True, drop_last = True, pin_memory = pinMemory, device = device)
+    dataset = imageDataset(path, res, preprocess = preprocess,device = device)
+    dataloader = DataLoader(dataset, batch_size = batchSize, num_workers = numWorkers, shuffle = True, drop_last = True, pin_memory = pinMemory)
 
     return dataloader
 
