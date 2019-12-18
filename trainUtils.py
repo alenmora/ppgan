@@ -54,6 +54,7 @@ class Trainer:
         self.lamb = 10 if config.lamb == None else config.lamb
         self.obj = 1 if config.obj == None else config.obj
         self.epsilon = 0.001 if config.epsilon == None else config.epsilon
+        self.use0CGP = config.use0CGP
 
         # model 
         self.createModels()
@@ -249,7 +250,9 @@ class Trainer:
         interpols = (alpha*real + (1-alpha)*fake).to(device=self.device)
         gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
         gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()/(self.obj+1e-8)**2
-
+        if self.use0CGP: #Use Zero-centered Gradient Penalty
+            gradLoss_ = self.lamb*(gradInterpols.norm(2,dim=1).mean())
+        
         #Drift loss
         driftLoss_ = self.epsilon*((cRealOut**2).mean()) + self.epsilon*((cFakeOut**2).mean())
 

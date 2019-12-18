@@ -47,8 +47,12 @@ cLR=1e-3
 # To deactivate, make it 0 or 1. Notice that this should divide all batch sizes in batchSizes. Otherwise it will throw
 # an error
 stdDevGroup = 4
-# lambda and obj are hyperparameters to perform gradient penalization on the critic. It is done by adding a term of 
-# the form lamb*(grad**2 - obj)**2/obj**2 to the loss function, where grad is the gradient with respect to the input values
+# use zero centered Gradient Penalty. This is, a term of the form lamb*(grad**2) is included in the loss function, where
+# grad is the gradient wrt the input values
+use0CGP = True
+# lamb and obj are hyperparameters to perform gradient penalization on the critic. If it is a zero centered penalization, only
+# lamb is necessary. If use0CGP is not set, or is set equal to False, the penalization is done by adding a term of 
+# the form lamb*(grad**2 - obj)**2/obj**2 to the loss function, where grad is the gradient wrt the input values
 lamb = 10
 obj = 450
 # epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
