@@ -101,7 +101,7 @@ class ProcessGenLevel(nn.Module):
         
             prev_x = x #Get the output for the previous resolution
             prev_x = self.toRGBs[curResLevel-1](prev_x) #Transform it to RGB
-            prev_x = F.interpolate(prev_x, scale_factor=2, mode='bilinear', align_corners=True) #Upsample it (upsample function is deprecated)
+            prev_x = F.interpolate(prev_x, scale_factor=2, mode='nearest') #Upsample it (upsample function is deprecated)
 
             x = self.chain[curResLevel](x) #Compute the output for the current resolution
             x = self.toRGBs[curResLevel](x) #Transform it to RGB       

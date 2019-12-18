@@ -41,6 +41,8 @@ class Trainer:
         if self.useCuda: print('Using CUDA...')
         
         # Hyperparams
+        self.nCritPerGen = int(config.nCritPerGen)
+        assert self.nCritPerGen > 0, 'ERROR: The number of critic training loops per generator loop should be an integer >= 1'
         self.cLR=config.cLR; self.gLR=config.gLR
         self.latentSize = int(config.latentSize) if config.latentSize != None else int(config.endRes/2)
         self.batchSizes =  config.batchSizes
@@ -71,7 +73,7 @@ class Trainer:
         self.preWtsFile = config.preWtsFile
 
         #data loading
-        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.useCuda)
+        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.useCuda, device = self.device)
         self.dataIterator = iter(self.dataloader)
         
         #monitoring parameters
@@ -142,8 +144,12 @@ class Trainer:
         """
         This function will return hyperparameters and architecture as string
         """
-        hyperParams = (f'HYPERPARAMETERS - cLR-{self.cLR}|gLR-{self.gLR}|lambda-{self.lamb}'
-                      f'|obj-{self.obj}|epsilon-{self.epsilon}|fadeSteps-{self.samplesWhileFade}|stableSteps-{self.samplesWhileStable}')
+        hyperParams = (f'HYPERPARAMETERS - cLR = {self.cLR}|gLR = {self.gLR}|Using uncentered GP with: lambda = {self.lamb}'
+                      f' and obj = {self.obj}|epsilon = {self.epsilon}|fadeSteps = {self.samplesWhileFade}|stableSteps = {self.samplesWhileStable}')
+        if self.use0CGP:
+            hyperParams = (f'HYPERPARAMETERS - cLR = {self.cLR}|gLR = {self.gLR}|Using 0-centered GP with: lambda = {self.lamb}'
+                          f'|epsilon = {self.epsilon}|fadeSteps = {self.samplesWhileFade}|stableSteps = {self.samplesWhileStable}')
+
         architecture = '\n\n' + str(self.crit) + '\n\n' + str(self.gen) + '\n\n'
         print(hyperParams)    
         return hyperParams + architecture
@@ -154,12 +160,12 @@ class Trainer:
         """
         # Average all stats and log
         genLoss_ = np.mean(self.genLoss[-self.logStep:])
-        critLoss_ = np.mean(self.criticLoss[-self.logStep:])
-        critRealLoss_ = np.mean(self.criticRealLoss[-self.logStep:])
-        critFakeLoss_ = np.mean(self.criticFakeLoss[-self.logStep:])
-        gradLoss_ = np.mean(self.gradientLoss[-self.logStep:])
+        critLoss_ = np.mean(self.criticLoss[-self.logStep*self.nCritPerGen:])
+        critRealLoss_ = np.mean(self.criticRealLoss[-self.logStep*self.nCritPerGen:])
+        critFakeLoss_ = np.mean(self.criticFakeLoss[-self.logStep*self.nCritPerGen:])
+        gradLoss_ = np.mean(self.gradientLoss[-self.logStep*self.nCritPerGen:])
         critGradShape_ = f'({self.critGradShape[-1][0]} x {self.critGradShape[-1][1]})'
-        driftLoss_ = np.mean(self.driftLoss[-self.logStep:])
+        driftLoss_ = np.mean(self.driftLoss[-self.logStep*self.nCritPerGen:])
         stats = f' {datetime.now():%H:%M (%d/%m)}'
         stats = stats + "| {:4d}| {:>6s}| {:6.4f}".format(self.res,self.stage,self.fadeWt)
         leadingSpaces = 9+len(str(self.logStep))-len(str(int(self.currentStep/self.logStep)))
@@ -214,7 +220,7 @@ class Trainer:
             self.dataIterator = iter(self.dataloader)
             real = self.dataIterator.next()
         
-        self.real = real.to(device=self.device)
+        self.real = real
     
     def getNoise(self, bs=None):
         """
@@ -246,18 +252,23 @@ class Trainer:
         critFakeLoss_ = cFakeOut.mean()
 
         # gradient penalty
-        alpha = torch.rand(self.batchSize, 1, 1, 1).to(device=self.device) 
-        interpols = (alpha*real + (1-alpha)*fake).to(device=self.device)
+        alpha = torch.rand(self.batchSize, 1, 1, 1, device=self.device)
+        interpols = (alpha*real + (1-alpha)*fake)
         gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
         gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()/(self.obj+1e-8)**2
+        
         if self.use0CGP: #Use Zero-centered Gradient Penalty
             gradLoss_ = self.lamb*(gradInterpols.norm(2,dim=1).mean())
         
         #Drift loss
         driftLoss_ = self.epsilon*((cRealOut**2).mean()) + self.epsilon*((cFakeOut**2).mean())
-
+        
         #Final loss
-        critLoss_ = critRealLoss_ + critFakeLoss_ + driftLoss_ + gradLoss_ + driftLoss_
+        critLoss_ = critRealLoss_ + critFakeLoss_ + gradLoss_ + driftLoss_
+
+        #If the drift loss is combined with the zero-centered gradient penalty, it's quite likely that the Loss 
+        # is just made equal to zero by zeroing all the weights!!
+        if self.use0CGP: critLoss_ = critRealLoss_ + critFakeLoss_ + gradLoss_
 
         critLoss_.backward(); self.cOptimizer.step()
         return critLoss_.item(), critRealLoss_.item(), critFakeLoss_.item(), gradLoss_.item(), gradInterpols.shape, driftLoss_.item()
@@ -327,21 +338,21 @@ class Trainer:
                 #Define the fading weight
                 self.fadeWt = float(stepInCurrentRes+1)/self.samplesWhileFade
 
-                # load new dl if stage is fade or we have loaded data 
-                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.useCuda)
+                # load new dl if stage is fade
+                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.useCuda, device = self.device)
                 self.dataIterator = iter(self.dataloader)
-
-            #Get batch of training data
-            self.callDataIteration()
 
             # Train Gen (evaluate critic)
             genLoss_ = self.trainGenerator()
             self.genLoss.append(genLoss_)
 
             # Train Critic
-            critLoss_, critRealLoss_, critFakeLoss_, gradientLoss_, critGradShape_, driftLoss_  = self.trainCritic()
-            self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
-            self.gradientLoss.append(gradientLoss_); self.critGradShape.append(critGradShape_); self.driftLoss.append(driftLoss_)
+            for i in range(self.nCritPerGen):
+                #Get batch of training data
+                self.callDataIteration()
+                critLoss_, critRealLoss_, critFakeLoss_, gradientLoss_, critGradShape_, driftLoss_  = self.trainCritic()
+                self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
+                self.gradientLoss.append(gradientLoss_); self.critGradShape.append(critGradShape_); self.driftLoss.append(driftLoss_)
 
             # log
             if currentStep % self.logStep == 0 :

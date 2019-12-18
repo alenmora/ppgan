@@ -24,11 +24,11 @@ def tensorToImage(tensor):
     return Image.fromarray(arr)
 
 
-def arrayToTensor(array):
+def arrayToTensor(array,device=torch.device('cpu')):
     """
     Convert numpy array to tensor after transposing (make the RGB channels be the first index) and float 32 conversion  
     """
-    return torch.from_numpy(np.transpose(array.astype('float32'), (2, 0, 1)))
+    return torch.from_numpy(np.transpose(array.astype('float32'), (2, 0, 1))).to(device=device)
 
 def imagePreprocessing(img,res=None,**kwargs):
     """
@@ -56,10 +56,12 @@ class imageDataset(Dataset):
     """
     This class represents a dataset of preprocessed images of resolution res x res
     """
-    def __init__(self, path, res, preprocess=None):
+    def __init__(self, path, res, preprocess=None, device=torch.device('cpu')):
         self.paths = glob(os.path.join(path, '*.jpg'))
+        self.paths += glob(os.path.join(path, '*.png'))
         self.res =  res
         self.preprocess = preprocess
+        self.device = device
 
     def __len__(self):
         return len(self.paths)
@@ -72,16 +74,16 @@ class imageDataset(Dataset):
             img = self.preprocess(img,res=self.res)
 
         # convert to tensor
-        img = arrayToTensor(img)
+        img = arrayToTensor(img, device=self.device)
     
         return img
 
-def loadData(path, res, batchSize, numWorkers=4, pinMemory=False, preprocess=imagePreprocessing):
+def loadData(path, res, batchSize, numWorkers=4, pinMemory=False, preprocess=imagePreprocessing, device=torch.device('cpu')):
     """
     Function to load and preprocess data from path
     """
     dataset = imageDataset(path, res, preprocess = preprocess)
-    dataloader = DataLoader(dataset, batch_size = batchSize, num_workers = numWorkers, shuffle = True, drop_last = True, pin_memory = pinMemory)
+    dataloader = DataLoader(dataset, batch_size = batchSize, num_workers = numWorkers, shuffle = True, drop_last = True, pin_memory = pinMemory, device = device)
 
     return dataloader
 

@@ -24,7 +24,7 @@ EXP_DIR='experiment2/'
 DATA_PATH='./data/anime/'
 
 # Save model checkpoint every number of steps. No checkpoint saved If the value is None or zero
-saveModelEvery = 200000
+saveModelEvery = 50000
 
 # Wether to use cuda or not. It is ignored if cuda is not available in the current machine
 useCuda = True
@@ -38,6 +38,9 @@ preWtsFile = None
 # Batch sizes for each resolution. All resolutions should be of the form 2**n, with n >= 2
 batchSizes={4:16, 8:16, 16:16, 32:16, 64:8, 128:4}
 
+#Number of critic batch loops per generator batch loop
+nCritPerGen = 1
+
 # Generator Learning Rate
 gLR=1e-3
 
@@ -49,25 +52,25 @@ cLR=1e-3
 stdDevGroup = 4
 # use zero centered Gradient Penalty. This is, a term of the form lamb*(grad**2) is included in the loss function, where
 # grad is the gradient wrt the input values
-use0CGP = True
+use0CGP = False
 # lamb and obj are hyperparameters to perform gradient penalization on the critic. If it is a zero centered penalization, only
 # lamb is necessary. If use0CGP is not set, or is set equal to False, the penalization is done by adding a term of 
 # the form lamb*(grad**2 - obj)**2/obj**2 to the loss function, where grad is the gradient wrt the input values
-lamb = 10
-obj = 450
+lamb = 1
+obj = 10
 # epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
 # epsilon*(output)**2 to the loss function
 epsilon = 0.0001
 
 # Other
 # Number of real images shown before increasing the resolution. Must be divisible by all batch sizes
-samplesWhileStable = 200000
+samplesWhileStable = 50000
 
 #Number of real images shown wile fading in new layers. Must be divisible by all batch sizes
-samplesWhileFade = 400000
+samplesWhileFade = 50000
 
 # log every x steps
-logStep=20000
+logStep=5000
 
 # Starting and ending resolution of the GAN blocks. These should be members of the batchSizes keys
 # and endRes > startRes. You should pick endRes to be of the same order of the maximum resolution of your

@@ -204,14 +204,14 @@ class Critic(nn.Module):
     def forward(self, x, curResLevel, fadeWt=None):
         return self.net.forward(x, curResLevel, fadeWt)
 
-    def getOutputGradWrtInputs(self, input, curResLevel, fadeWt=None, device='cpu'):
+    def getOutputGradWrtInputs(self, input, curResLevel, fadeWt=None, device=torch.device('cpu')):
         """
         Return the unrolled gradient matrix of the critic output wrt the input parameters for 
         each example in the input
         (should have a size batchSize x (imageWidth x imageHeight x imageChannels))
         """
-        x = input.detach().requires_grad_().to(device=device)
-        out = self.net.forward(x, curResLevel=curResLevel, fadeWt=fadeWt).to(device=device)
+        x = input.detach().requires_grad_()
+        out = self.net.forward(x, curResLevel=curResLevel, fadeWt=fadeWt)
         ddx = autograd.grad(outputs=out, inputs=x,
                               grad_outputs = torch.ones(out.size(),device=device),
                               create_graph = True, retain_graph=True, only_inputs=True)[0]
