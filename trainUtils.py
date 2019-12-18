@@ -73,7 +73,7 @@ class Trainer:
         self.preWtsFile = config.preWtsFile
 
         #data loading
-        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.useCuda, device = self.device)
+        self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.startRes, pinMemory = self.useCuda)
         self.dataIterator = iter(self.dataloader)
         
         #monitoring parameters
@@ -185,8 +185,8 @@ class Trainer:
             f = dataUtils.tensorToImage(fake[0])
             
             # real
-            self.callDataIteration()
-            r = dataUtils.tensorToImage(self.real.cpu()[0])
+            real = self.callDataIteration()
+            r = dataUtils.tensorToImage(real.cpu()[0])
             
             try: img = np.vstack((img, np.hstack((f, r))))
             except: img = np.hstack((f, r))
@@ -220,7 +220,7 @@ class Trainer:
             self.dataIterator = iter(self.dataloader)
             real = self.dataIterator.next()
         
-        self.real = real
+        return real
     
     def getNoise(self, bs=None):
         """
@@ -240,20 +240,19 @@ class Trainer:
         switchTrainable(self.gen, False)
 
         # real
-        real = self.real.requires_grad_(True)
+        real = self.callDataIteration()
         cRealOut = self.crit(x=real, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
         critRealLoss_ = -1*cRealOut.mean()
         
         # fake
         self.z = self.getNoise()
-        self.fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
-        fake = self.fake
+        fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
         cFakeOut = self.crit(x=fake.detach(), fadeWt=self.fadeWt, curResLevel = self.curResLevel)
         critFakeLoss_ = cFakeOut.mean()
 
         # gradient penalty
         alpha = torch.rand(self.batchSize, 1, 1, 1, device=self.device)
-        interpols = (alpha*real + (1-alpha)*fake)
+        interpols = (alpha*real + (1-alpha)*fake).detach().requires_grad_(True)
         gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
         gradLoss_ = self.lamb*((gradInterpols.norm(2,dim=1)-self.obj)**2).mean()/(self.obj+1e-8)**2
         
@@ -282,8 +281,8 @@ class Trainer:
         switchTrainable(self.crit, False)
         
         self.z = self.getNoise()
-        self.fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
-        genCritLoss_ = self.crit(x=self.fake, fadeWt=self.fadeWt, curResLevel = self.curResLevel).mean()
+        fake = self.gen(x=self.z, fadeWt=self.fadeWt, curResLevel = self.curResLevel)
+        genCritLoss_ = self.crit(x=fake, fadeWt=self.fadeWt, curResLevel = self.curResLevel).mean()
         
         genLoss_ = -1*genCritLoss_
         genLoss_.backward(); self.gOptimizer.step()
@@ -339,7 +338,7 @@ class Trainer:
                 self.fadeWt = float(stepInCurrentRes+1)/self.samplesWhileFade
 
                 # load new dl if stage is fade
-                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.useCuda, device = self.device)
+                self.dataloader = dataUtils.loadData(path=self.DATA_PATH, batchSize=self.batchSize, res=self.res, pinMemory = self.useCuda)
                 self.dataIterator = iter(self.dataloader)
 
             # Train Gen (evaluate critic)
@@ -348,8 +347,6 @@ class Trainer:
 
             # Train Critic
             for i in range(self.nCritPerGen):
-                #Get batch of training data
-                self.callDataIteration()
                 critLoss_, critRealLoss_, critFakeLoss_, gradientLoss_, critGradShape_, driftLoss_  = self.trainCritic()
                 self.criticLoss.append(critLoss_); self.criticRealLoss.append(critRealLoss_); self.criticFakeLoss.append(critFakeLoss_)
                 self.gradientLoss.append(gradientLoss_); self.critGradShape.append(critGradShape_); self.driftLoss.append(driftLoss_)
