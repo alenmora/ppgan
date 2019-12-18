@@ -53,7 +53,7 @@ lamb = 10
 obj = 450
 # epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
 # epsilon*(output)**2 to the loss function
-epsilon = 0.001
+epsilon = 0.0001
 
 # Other
 # Number of real images shown before increasing the resolution. Must be divisible by all batch sizes
