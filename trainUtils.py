@@ -220,7 +220,7 @@ class Trainer:
             self.dataIterator = iter(self.dataloader)
             real = self.dataIterator.next()
         
-        return real
+        return real.to(device=self.device)
     
     def getNoise(self, bs=None):
         """
