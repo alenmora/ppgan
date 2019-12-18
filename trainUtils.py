@@ -160,7 +160,7 @@ class Trainer:
         critGradShape_ = f'({self.critGradShape[-1][0]} x {self.critGradShape[-1][1]})'
         driftLoss_ = np.mean(self.driftLoss[-self.logStep:])
         stats = f' {datetime.now():%H:%M (%d/%m)}'
-        stats = stats + "| {:4d}| {:>6s}| {:7.6f}".format(self.res,self.stage,self.fadeWt)
+        stats = stats + "| {:4d}| {:>6s}| {:6.4f}".format(self.res,self.stage,self.fadeWt)
         leadingSpaces = 9+len(str(self.logStep))-len(str(int(self.currentStep/self.logStep)))
         stats = stats + "|"+leadingSpaces*" "+str(int(self.currentStep/self.logStep))
         stats = stats + "| {:9.4f}| {:9.4f}".format(genLoss_,critLoss_)
@@ -292,8 +292,8 @@ class Trainer:
         assert currentStep < totalSteps, f'ERROR: the current step is larger than the total number of training steps! {currentStep} > {totalSteps}'
 
         print('Starting training...')   
-        colNames = f'time and date |res  |stage  |fadeWt  |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape    |driftLoss '
-        sep = '|'.join(['-'*14,'-'*5,'-'*7,'-'*8,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*13,'-'*10])
+        colNames = f'time and date |res  |stage  |fadeWt |iter (x{self.logStep}) |genLoss   |critLoss  |cRealLoss |cFakeLoss |gradLoss  |gradShape    |driftLoss '
+        sep = '|'.join(['-'*14,'-'*5,'-'*7,'-'*7,'-'*(9+len(str(self.logStep))),'-'*10,'-'*10,'-'*10,'-'*10,'-'*10,'-'*13,'-'*10])
         print(colNames)
         print(sep)
 
