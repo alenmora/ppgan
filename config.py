@@ -18,13 +18,13 @@ LOG_DIR='./log/'
 #    --logDir('experiment3/')
 # ......
 # ------------------------------------
-EXP_DIR='experiment1/'
+EXP_DIR='experiment2/'
 
 # Path to the training data
 DATA_PATH='./data/anime/'
 
 # Save model checkpoint every number of steps. No checkpoint saved If the value is None or zero
-saveModelEvery = 20000
+saveModelEvery = 200000
 
 # Wether to use cuda or not. It is ignored if cuda is not available in the current machine
 useCuda = True
@@ -32,37 +32,38 @@ useCuda = True
 # Use pretrained weights if available. Together with this, the pretrained weights' file
 # complete address and name should be given in the preWtsFile variable. Otherwise, this is ignored
 usePreWts = True
-preWtsFile = LOG_DIR+EXP_DIR+'modelCheckpoint_32_stable_20000.pth.tar'
+preWtsFile = None
 
 ## Hyperparameters
+# Batch sizes for each resolution. All resolutions should be of the form 2**n, with n >= 2
+batchSizes={4:16, 8:16, 16:16, 32:16, 64:8, 128:4}
+
+# Generator Learning Rate
+gLR=1e-3
+
 # Critic Learning Rate
 cLR=1e-3
 # Group size for the standard deviation calculation in the last block of the critic. If None, it is set equal to 4.
-# To deactivate, make it 0 or 1
+# To deactivate, make it 0 or 1. Notice that this should divide all batch sizes in batchSizes. Otherwise it will throw
+# an error
 stdDevGroup = 4
 # lambda and obj are hyperparameters to perform gradient penalization on the critic. It is done by adding a term of 
-# the form lamb*(grad**2 - obj)**2 to the loss function, where grad is the gradient with respect to the input values
+# the form lamb*(grad**2 - obj)**2/obj**2 to the loss function, where grad is the gradient with respect to the input values
 lamb = 10
 obj = 450
 # epsilon is a small parameter to stop the critic output to explode. This is done by adding a term of the form 
 # epsilon*(output)**2 to the loss function
 epsilon = 0.001
 
-# Generator Learning Rate
-gLR=1e-3
-
-# Batch sizes for each resolution. All resolutions should be of the form 2**n, with n >= 2
-batchSizes={4:16, 8:16, 16:16, 32:16, 64:8, 128:4}
-
 # Other
 # Number of real images shown before increasing the resolution. Must be divisible by all batch sizes
-samplesWhileStable = 20000
+samplesWhileStable = 200000
 
 #Number of real images shown wile fading in new layers. Must be divisible by all batch sizes
-samplesWhileFade = 40000
+samplesWhileFade = 400000
 
 # log every x steps
-logStep=5000
+logStep=20000
 
 # Starting and ending resolution of the GAN blocks. These should be members of the batchSizes keys
 # and endRes > startRes. You should pick endRes to be of the same order of the maximum resolution of your

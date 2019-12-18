@@ -186,7 +186,7 @@ class Critic(nn.Module):
             fromRGB = fromRGBBlock(inCh=nInputChannels, outCh=inCh)
             net = []
             net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #First convolutional block
-            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i)     #Double the number of channels for the second convolution 
+            inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i)       #Double the number of channels for the second convolution 
             net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #Second convolutional block
             net.append(nn.AvgPool2d(kernel_size=2,stride=2))                   #Downsample
             

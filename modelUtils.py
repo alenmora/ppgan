@@ -22,8 +22,8 @@ class PixelNormalization(nn.Module):
 
 class WSConv2d(nn.Module):
     """
-    This is the wt scaling conv layer layer. Initialize with N(0, scale). Then 
-    it will multiply the scale for every forward pass
+    This is the wt scaling conv layer layer. Initialize with N(0, 1). Then 
+    it will multiply the conv output by gain/kernelSize for every forward pass
     """
     def __init__(self, inCh, outCh, kernelSize, stride, padding, gain=np.sqrt(2)):
         super().__init__()
