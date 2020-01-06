@@ -127,6 +127,9 @@ class ProcessGenLevel(nn.Module):
 
     def forward(self, x, curResLevel, fadeWt=0):
 
+        if curResLevel == None:
+            curResLevel = len(self.chain)-1
+
         for level in range(curResLevel):
                 x = self.chain[level](x)
         

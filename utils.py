@@ -7,18 +7,11 @@ import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from torch import FloatTensor as FT
 from datetime import datetime
-import math
 import PIL.Image
 import animeface
 from shutil import copyfile
-
-def resize(x, size):
-    transform = transforms.Compose([
-        transforms.toPILImage(),
-        transforms.Scale(size),
-        transforms.ToTensor(),
-    ])
-    return transform(x)
+from glob import glob
+import math
 
 def writeFile(path, content, mode):
     """
@@ -112,7 +105,7 @@ def debugMemory():
     for line in sorted(tensors.items()):
         print('{}\t{}'.format(*line))
 
-def cleanImagesFolder(curPath, newPath):
+def cleanImagesFolder(curPath, newPath, res = None, searchFaces = False, faceThreshold = 0.5):
     """
     Creates a new folder containing all the images
     from the current folder with anime faces on them, using the
@@ -123,10 +116,86 @@ def cleanImagesFolder(curPath, newPath):
     images = glob(os.path.join(curPath, '*.jpg'))
 
     for image in images:
-        im = PIL.Image.open(image)
-        faces = animeface.detect(im)
-        if not faces: continue #Get rid of garbage
-        if (faces[0]['Face likelihood'] < 0.5): continue #Get rid of garbage
-        imName = image.split('/')[-1]
-        newImage = os.path.join(newPath,imName)
-        copyfile(image,newImage)
+        try:
+            im = PIL.Image.open(image)
+            if res != None:
+                if min(im.size) < res: continue
+            if searchFaces:
+                faces = animeface.detect(im)
+                if not faces: continue #Get rid of garbage
+                if (faces[0].likelihood < faceThreshold): continue #Get rid of garbage
+
+            imName = image.split('/')[-1]
+            newImage = os.path.join(newPath,imName)
+            copyfile(image,newImage)
+        
+        except OSError:
+            continue
+
+def imagesStats(folder):
+    """
+    Draws the mean image from the images in 
+    folder, and the variance in each channel, and an saves them in the same folder
+    """
+    files = glob(os.path.join(folder,'*.png'))
+    files = files + glob(os.path.join(folder,'*.jpg'))
+
+    root = './stats/'
+    spec = "-".join(folder.split('/'))
+
+    folder = createDir(os.path.join(root,spec))
+
+    model = PIL.Image.open(files[0])
+    w,h = model.size
+    mode = model.mode
+    channels = len(model.getbands())
+    N = len(files)
+
+    print(f'Number of images: {N}')
+    print(f'Width: {w}, Height: {h}, No of Channels: {channels}')
+
+    mean = np.zeros((h,w,channels), dtype=np.float)
+    stds = np.zeros((h,w,channels), dtype=np.float)
+    likelihoodMean = 0.
+    likelihoodStd = 0.
+
+    for im in files:
+        try:
+            pim = PIL.Image.open(im).resize((w,h), PIL.Image.LANCZOS)
+            imarr = np.array(pim)/255.
+            
+            stds = stds+(imarr**2)/N
+            mean = mean+imarr/N
+
+            faces = animeface.detect(pim)
+
+            likelihood = 0
+            
+            if faces: likelihood = faces[0].likelihood
+
+            likelihoodStd = likelihoodStd + likelihood**2
+            likelihoodMean = likelihoodMean + likelihood
+
+        except OSError:
+            print('skipping')
+            continue
+
+    print(likelihoodMean)
+    
+    print(f'Likelihood mean: {likelihoodMean/N}')
+    print(f'Likelihood std dev: {math.sqrt(likelihoodStd/N-(likelihoodMean/N)**2)}')
+
+    stds = 255*np.sqrt(stds-mean**2)
+    mean = np.array(np.round(mean*255), dtype=np.uint8)
+    out = PIL.Image.fromarray(mean, mode = mode)
+    output = os.path.join(folder,'mean.jpg')
+    out.save(output)
+
+    for i,band in enumerate(model.getbands()):
+        std = 255*np.ones((h,w,channels))
+        std = std-255*np.expand_dims((stds[:,:,i]/(np.max(stds[:,:,i])+1e-8)),axis=2)
+        std[:,:,i] = 255*np.ones((h,w))
+        std = np.array(np.round(std), dtype=np.uint8)
+        out = PIL.Image.fromarray(std, mode = mode)
+        output = os.path.join(folder,f'std{band}.jpg')
+        out.save(output)

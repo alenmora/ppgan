@@ -342,7 +342,7 @@ class Trainer:
             
             self.imShownInRes = 0 #Reset the number of images shown at the end (to allow for training resuming)
 
-        self.logger.saveSnapshot(f'{self.res}x{self.res}_final')
+        self.logger.saveSnapshot(f'{self.res}x{self.res}_final_{self.latentSize}')
             
     def doOneTrainingStep(self):
         """

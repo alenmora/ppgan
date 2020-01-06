@@ -11,6 +11,18 @@ class dataLoader:
         self.batch_table = {4:32, 8:32, 16:32, 32:24, 64:16, 128:16, 256:16, 512:8, 1024:8} 
         self.imsize = int(config.startRes)
         self.batchSize = int(self.batch_table[config.startRes])
+        self.filterDict = {
+                            'NEAREST': Image.NEAREST,
+                            'BILINEAR':Image.BILINEAR,
+                            'BICUBIC': Image.BICUBIC,
+                            'LANCZOS': Image.LANCZOS,
+                          }
+        try:
+            self.filter = self.filterDict[config.inputFilter]
+        except KeyError:
+            print('The specified input filter is not valid. Please choose from NEAREST, BILINEAR, BICUBIC or LANCZOS. Proceeding with NEARST')
+            self.filter = Image.NEAREST
+        
         self.num_workers = 0
 
     def renew(self, resl):
@@ -21,7 +33,7 @@ class dataLoader:
         self.dataset = ImageFolder(
                     root=self.data_path,
                     transform=transforms.Compose(   [
-                                                    transforms.Resize(size=(self.imsize,self.imsize), interpolation=Image.NEAREST),
+                                                    transforms.Resize(size=(self.imsize,self.imsize), interpolation=self.filter),
                                                     transforms.ToTensor(),
                                                     ]))
 

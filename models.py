@@ -100,9 +100,6 @@ class Generator(nn.Module):
         x (tensor): latent vector
         fadeWt (double): Weight to regularly fade in higher resolution blocks
         """
-        if curResLevel == None:
-            curResLevel = len(self.net.chain)-1
-            
         return self.net.forward(x, curResLevel, fadeWt)
 
     def paTerm(self, x, curResLevel=None, fadeWt=1, againstInput = True):

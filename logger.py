@@ -190,7 +190,7 @@ class logger:
         """
         if title == None:
             if self.trainer.stage == 'stable':
-                title = f'modelCheckpoint_{self.trainer.res}x{self.trainer.res}_{self.trainer.imShownInRes}.pth.tar'
+                title = f'modelCheckpoint_{self.trainer.res}x{self.trainer.res}_{self.trainer.imShownInRes}_{self.trainer.latentSize}.pth.tar'
 
                 path = os.path.join(self.log_path,title)
                 torch.save({'crit':self.trainer.crit.state_dict(), 'cOptimizer':self.trainer.cOptimizer.state_dict(),

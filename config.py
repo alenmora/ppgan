@@ -38,7 +38,7 @@ parser.add_argument('--smoothing', type=float, default=0.997)              #Smoo
 parser.add_argument('--samplesWhileStable', type=int, default=750000)      #Number of images shown while in the stable stage of training
 parser.add_argument('--samplesWhileFade', type=int, default=750000)        #Number of images shown while in the fading stage of training
 parser.add_argument('--startRes', type=int, default=4)                     #Starting image resolution
-parser.add_argument('--endRes', type=int, default=128)                     #Final image resolution
+parser.add_argument('--endRes', type=int, default=64)                      #Final image resolution
 parser.add_argument('--gOptimizer_betas', type=str, default='0.0 0.99')    #Generator adam optimizer beta parameters
 parser.add_argument('--cOptimizer_betas', type=str, default='0.0 0.99')    #Critic adam optimizer beta parameters
 parser.add_argument('--lamb', type=float, default=10)                      #Weight of the extra loss term in the critic loss function
@@ -61,6 +61,12 @@ parser.add_argument('--fmapMax', type=int, default=256)                         
 parser.add_argument('--fmapDecay', type=float, default=1.)                               #Parameter to calculate the number of channels in each block
 parser.add_argument('--criticLossFunc', choices=['WGAN','BEGAN'], default='WGAN')        #Which loss function use for the critic. Options are 'WGAN' (arXiv:1701.07875) or 'BEGAN' (arXiv:1703.10717v4)
 parser.add_argument('--extraLossTerm', choices=['PGGAN','0GP','TVP'], default='PGGAN')   #Which extra loss to add to the loss function. The default is a combination of GP and drifting penalization, as used in the original paper. For 0GP, see arXiv:1902.03984v1
+
+############################
+#  Filter for resizing input images
+############################
+
+parser.add_argument('--inputFilter', type=str, default='NEAREST')       #Filter to use in the dataLoader when resizing the input images
 
 ############################
 #  Resume training

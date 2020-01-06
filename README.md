@@ -83,6 +83,10 @@ It is possible to pass only the first flag, from which the pretrained weights wi
 
 ### 4. Generated images
 
-This is a sample of anime faces I got after training with the default parameters
+This is a sample of anime faces I got after training with the default parameters (128x128_final_128.pth.rar file in pretrainedModels)
 
 ![genImages](./generatedImages.png)
+
+This was done with a better training dataset (64x64_final_256.pth.rar file in pretrainedModels)
+
+![genImagesGetchu](./generatedImagesGetchu.png)

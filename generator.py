@@ -25,11 +25,19 @@ def loadPretrainedWts(dir):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser('PGGAN_GEN')
     parser.add_argument('--nImages', type=int, default=20)
-    parser.add_argument('--wtsFile', type=str, default='./ppgan3/128x128_final.pth.tar')
-    parser.add_argument('--outFile', type=str, default='./generatedImages.png')
-    parser.add_argument('--resolution', nargs='?')
+    parser.add_argument('--latentSize', nargs='?', tpye=int)
+    parser.add_argument('--nChannels', type=int, default=3)
+    parser.add_argument('--wtsFile', type=str, default='./pretrainedModels/128x128_final_128.pth.tar')
+    parser.add_argument('--outputFile', type=str, default='./generatedImages.png')
+    parser.add_argument('--resolution', nargs='?', type=int)
 
     args, _ = parser.parse_known_args()
+
+    endRes = int(args.resolution) if args.resolution else int(args.wtsFile.split('/')[-1].split('x')[0])
+
+    config.latentSize = args.latentSize if args.latentSize else int(args.wtsFile.split('/')[-1].split('_')[-1])
+    config.endRes = endRes
+    config.nChannels = args.nChannels
 
     device = torch.device('cpu')
 
@@ -39,22 +47,13 @@ if __name__ == "__main__":
 
     gen.load_state_dict(wts['gen']) 
 
-    z = utils.getNoise(bs = n, latentSize = config.latentSize, device = device)
+    z = utils.getNoise(bs = n, latentSize = args.latentSize, device = device)
 
-    finalRes = int(args.wtsFile.split('/')[-1].split('x')[0])
-
-    resLevel = None
-    
-    if args.resolution:
-        resolution = int(args.resolution)
-        if finalRes > resolution:
-            resLevel = int(np.log2(resolution)-2)
-
-    fakes = gen(z, curResLevel = resLevel)
+    fakes = gen(z)
 
     print('single image size: ', str(fakes.shape[2]) + 'x' + str(fakes.shape[2]))
     print(f'number of images: {n}')
-    print(f'saving image to: {args.outFile}')
+    print(f'saving image to: {args.outputFile}')
 
     nrows = 1
 
@@ -70,4 +69,4 @@ if __name__ == "__main__":
 
             i = i-1
 
-    utils.saveImage(fakes, args.outFile, nrow=nrows, padding=5)
+    utils.saveImage(fakes, args.outputFile, nrow=nrows, padding=5)
