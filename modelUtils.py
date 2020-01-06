@@ -2,7 +2,19 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import numpy as np
+import utils
 import pdb
+
+class ReshapeLayer(nn.Module):
+    """
+    Reshape latent vector layer
+    """
+    def __init__(self, shape):
+        super(ReshapeLayer, self).__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.view(*self.shape)
 
 
 class PixelNormalization(nn.Module):
@@ -14,7 +26,7 @@ class PixelNormalization(nn.Module):
         self.eps = eps
     
     def forward(self, x):
-        return x / (torch.mean(x**2, dim=1, keepdim=True) + 1e-8) ** 0.5
+        return x / (torch.mean(x**2, dim=1, keepdim=True) + self.eps) ** 0.5
 
     def __repr__(self):
         return self.__class__.__name__ + '(eps = %s)' % (self.eps)
@@ -39,13 +51,13 @@ class WSConv2d(nn.Module):
         self.wtScale = gain/np.sqrt(fanIn)
         
         # init
-        nn.init.normal_(self.conv.weight)
+        nn.init.normal_(self.conv.weight)*self.wtScale
         nn.init.constant_(self.bias, val=0)
         
         self.name = '(inp = %s)' % (self.conv.__class__.__name__ + str(convShape))
         
     def forward(self, x):
-        output = self.conv(x) * self.wtScale + self.bias.view(1, self.bias.shape[0], 1, 1)
+        output = self.conv(x)*self.wtScale + self.bias.view(1, self.bias.shape[0], 1, 1)
         return output 
 
     def __repr__(self):
@@ -54,7 +66,7 @@ class WSConv2d(nn.Module):
     
 class BatchStdConcat(nn.Module):
     """
-    Add std to last layer group of disc to improve variance
+    Add std to last layer group of critic to improve variance
     """
     def __init__(self, groupSize = 4):
         super().__init__()
@@ -74,7 +86,35 @@ class BatchStdConcat(nn.Module):
     
     def __repr__(self):
         return self.__class__.__name__ + '(Group Size = %s)' % (self.groupSize)
-    
+
+class equalizedLinear(nn.Module):
+    """
+    Equalizes the learning rate for the weights by scaling them using the normalization constant
+    from He's initializer
+    """
+    def __init__(self, inCh, outCh, gain=np.sqrt(2)):
+        super().__init__()
+        self.linear = nn.Linear(inCh, outCh)
+        
+        # new bias to use after wscale
+        self.bias = self.linear.bias
+        self.linear.bias = None
+        
+        # calc wt scale
+        self.wtScale = gain/np.sqrt(inCh+outCh)
+        
+        # init
+        nn.init.normal_(self.linear.weight)*self.wtScale
+        nn.init.constant_(self.bias, val=0)
+        
+        self.name = '(inp = %s)' % (self.linear.__class__.__name__ + str(self.linear.weight.shape))
+        
+    def forward(self, x):
+        output = self.linear(x)*self.wtScale + self.bias.view(1, self.bias.shape[0])
+        return output 
+
+    def __repr__(self):
+        return self.__class__.__name__ + self.name   
     
 class ProcessGenLevel(nn.Module):
     """
@@ -85,20 +125,12 @@ class ProcessGenLevel(nn.Module):
         self.chain = chain
         self.toRGBs = toRGBs
 
-    def forward(self, x, curResLevel, fadeWt):
+    def forward(self, x, curResLevel, fadeWt=0):
 
         for level in range(curResLevel):
                 x = self.chain[level](x)
-
-        if (fadeWt == 0):  #If fadeWt is zero we are at a stable stage, so just apply the last resolution layer
-            
-            x = self.chain[curResLevel](x)
-            x = self.toRGBs[curResLevel](x)
-
-            return x
         
-        else:   #Otherwise, we are in a fade stage, and we need the output from the previous resolution
-        
+        if fadeWt < 1:   #We are in a fade stage
             prev_x = x #Get the output for the previous resolution
             prev_x = self.toRGBs[curResLevel-1](prev_x) #Transform it to RGB
             prev_x = F.interpolate(prev_x, scale_factor=2, mode='nearest') #Upsample it (upsample function is deprecated)
@@ -106,7 +138,13 @@ class ProcessGenLevel(nn.Module):
             x = self.chain[curResLevel](x) #Compute the output for the current resolution
             x = self.toRGBs[curResLevel](x) #Transform it to RGB       
         
-            return fadeWt*x + (1-fadeWt)*prev_x #Return their interpolation
+            x = fadeWt*x + (1-fadeWt)*prev_x
+        
+        else:
+            x = self.chain[curResLevel](x) #Compute the output for the current resolution
+            x = self.toRGBs[curResLevel](x) #Transform it to RGB       
+        
+        return x 
 
 class ProcessCriticLevel(nn.Module):
     """
@@ -117,29 +155,24 @@ class ProcessCriticLevel(nn.Module):
         self.fromRGBs = fromRGBs
         self.chain = chain
 
-    def forward(self, x, curResLevel, fadeWt):
+    def forward(self, x, curResLevel, fadeWt=0):
 
-        y = self.fromRGBs[curResLevel](x) #Get the input formated from the current level
-        for level in range(curResLevel,-1,-1): #Start by applying the highest resolution layer and then go down to the most simple one
-            y = self.chain[level](y)
-            
-            if fadeWt == 0 : return y #If fadeWt is zero we are in a stable stage and don't need anything else
+        if fadeWt < 1:
+            prev_x = F.avg_pool2d(x, kernel_size=2, stride=2)   #Since the resolution of the input image is twice as the previous one, we downscale
+            prev_x = self.fromRGBs[curResLevel-1](prev_x)       #Use the proper RGB to channels filter
+            x = self.fromRGBs[curResLevel](x) #Get the input formated from the current level
+            x = self.chain[curResLevel](x)    #Process the top level   
 
-        #Otherwise, we are in a fade stage, and we need the output from the previous resolution
-        prev_y = F.avg_pool2d(x, kernel_size=2, stride=2)   #Since the resolution of the input image is twice as the previous one, we downscale
-        prev_y = self.fromRGBs[curResLevel-1](prev_y)       #Use the proper RGB to channels filter
-        for level in range(curResLevel-1,-1,-1):            #Apply all the filters, from the highest resolution one to the lowest
-            prev_y = self.chain[level](prev_y)       
+            for level in range(curResLevel-1,-1,-1): #Apply the rest of the levels, from top to bottom
+                x = self.chain[level](x)
+                prev_x = self.chain[level](prev_x)
         
-        return fadeWt*y + (1-fadeWt)*prev_y #Return their interpolation
-    
-class ReshapeLayer(nn.Module):
-    """
-    Reshape latent vector layer
-    """
-    def __init__(self, shape):
-        super(ReshapeLayer, self).__init__()
-        self.shape = shape
+                x = fadeWt*x + (1-fadeWt)*prev_x
 
-    def forward(self, x):
-        return x.view(*self.shape)
+        else:
+            x = self.fromRGBs[curResLevel](x) #Get the input formated from the current level
+
+            for level in range(curResLevel,-1,-1): #Apply the rest of the levels, from top to bottom
+                x = self.chain[level](x)
+        
+        return x

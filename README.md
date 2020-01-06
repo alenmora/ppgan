@@ -1,83 +1,82 @@
-# PGGAN sample
+# PGGAN PyTorch Implementation
 
-## 初期設定
-訓練前に実行してください。
+## Needed setup
+Currently, this only supports Python3 . If you have it and PyTorch installed, you are good to go. Just run:
 
-1. モジュールのインストール
-特に必要なし
+```
+python3 trainer.py
+```
 
-## 訓練手順
-### 1. データの準備
-data フォルダ以下に画像データを格納する．現在利用できるものとしては，
-/home/2019A/data/dentsu/images
-に格納した二つのデータセットがある．
+## Differences with the [original paper](https://arxiv.org/abs/1710.10196)
+
+I tried to keep it as close as possible to the original. However, since I ran in a data sample
+with lower resolutions, I changed the default number of channels in each convolutional block, the 
+length of the latent vector, and the number of images shown per stable/fading stage. These
+can be easily configured by either modifying the config.py file, or by adding the next flags to the
+script call.
+
+To recover the original settings, use the next flags with the corresponding values when calling the script:
 
 ``` shell
--rw-r--r-- 1 taichi taichi 292179167 Dec  5 06:21 anime_face_dentsu.zip
--rw-r--r-- 1 taichi taichi 462126466 Dec  5 06:24 anime-faces.zip
+--fmapBase 8192 --fmapMax 512 --fmapDecay 1 --samplesWhileStable 800000 --samplesWhileFade 800000 --endRes 1024 --latentSize 512 --nCritPerGen 1 --stdDevGroup 4
 ```
-anime_face_dentsuは電通側から提供されたもの，anime-facesはkaggleからダウンロードしたものである．
 
-### 2. config ファイルの設定
-config.py を適宜編集する。
+I also increased the batch sizes for each resolution. If you want to change them back, modify the corresponding dictionary
+in the dataLoader.py file.
 
-#### 2-a. 最初から訓練する場合：
-config.py:
-- startRes=4
-- startStage='stab'
-を指定する
+I am not really sure how exactly the weights normalization is performed, and reviewing multiple implementations, everyone seems
+to have their own idea on how to do it. I tried to review the [original code](https://github.com/tkarras/progressive_growing_of_gans), 
+but it is rather obscure. Anyhow, in this implementation, the weights for each channel in a convolutional layer are scaled by a factor 
+of $\sqrt{2/n_W}$, where $n_W$ is the number of weights in one channel. Some implementations use as $n_W$ the total number of weights of 
+the layer. Linear layers are multiplied by a scale factor of $\sqrt{inCh+outCh}$, where $inCh$ is the number of inputs, and $outCh$ is 
+the number of outputs. 
 
-modelCheckpoint_<n>_[fade|stab]_37500.pth.tar
-のような形式のモデルのチェックポイントファイルが生成されます。
+Added some support for the [BEGAN](https://arxiv.org/abs/1703.10717) loss function. If you want to change to it, just add the flag
+``` shell
+--criticLossFunc BEGAN
+```
 
-訓練の順番は以下のステージを踏みます。
-4*4 stable -> 8*8 fade in -> 8*8 stable -> 16*16 fade in ->16*16 stable
+Added also support for multiple "extra-loss" (regularization) terms, both in the critic and in the generator. In the critic, the default term, PGGAN, is the
+sum of the drift loss and the gradient penalty used in the original paper. The default values of the hyperparameters for these losses are the
+same as in the original. The other two possible otions are TV (total variation, from [here](https://arxiv.org/abs/1812.00810)) and a 
+0GP (a zero centered gradient penalty, from [here](https://arxiv.org/abs/1902.03984)). To change between them use
+``` shell
+--extraLossTerm 0GP
+```
 
-#### 2-b.　途中から訓練を再開する場合：
-訓練の順番にしたがって、config.pyのなかの変数を指定すること。
+For the generator, added a pull-away term, as first described in [here](https://arxiv.org/abs/1609.03126). It can be either centered around zero (thus pushing
+all the samples in the  minibatch to be orthogonal to each other) or centered around the cosine distance of the generating latent vectors (so, if two latent vectors are parallel, the generated samples should be as well). To make use it, input
+``` shell
+--paterm True (centered around the latents cosine) / False (centered at zero)
+```
 
-再開する際に、モデルのチェックポイントファイルと同時に startRes,startStaege を指定してください。
+## Training preparation
+### 1. Data
+You can specify the folder where the data is stored by passing the `--data_path` flag. Since the dataLoader uses the pyTorch ImageFolder class as a dataset, the data path should be one of the form:
 
-例①：
-modelFname='modelCheckpoint_8_stab_37500.pth.tar'　を利用する場合：
-- startRes=16
-- startStage='fade'
-を指定する
+```shell
+data_path
+    |--images
+         |--image1.png
+         |--image2.png
+         |--image3.png
+```
 
-例②：
-modelFname='modelCheckpoint_8_fade_37500.pth.tar' を利用する場合：
-- startRes=8
-- startStage='stab'
-を指定する
+There is a shell script available to download a data set of anime faces. To use it, execute
+```shell
+source download.sh
+```
 
-### 3. 以下のコマンドを実行する
- $ python train.py
+### 2. Logging folder
+You can specify the folder where the sample images, net status and architecture, and model snapshots will be saved. To do this, use the `--log_path` flag
 
+### 3. Resuming your training
+It is posible to resume a former training session by loading a pre-trained weights file, and by specifying the resolution and the number of images shown during
+the current resolution loop before the training was interrupted. Since sometimes it is hard to keep track of this, the logger class will take snapshots of the model and store them in a .pth.tar file. The name of the file contains the resolution and the number of images shown during the loop in its name. Notice that the logger will **only** take snapshots during the stable stages, and it is **only** possible to load a model from this stages. 
 
-## 生成手順
+In order to resume a training session, use the next flags:
+```
+--preWtsFile /path/to/your/weights/file --resumeTraining resolution NumberOfSteps
+```
 
-### 1. configファイルの設定
-config.pyを編集してモデルのスナップショットファイル他を指定する
-
-指定する項目は以下のようになる。
-- config.gen_image_path
-- config.LOG_DIR　　 : ログ出力場所
-- config.logDir     : LOG_DIR　の直下に作成する各実験ごとのログの保存フォルダ名
-- config.modelFname : モデルのチェックポイントファイルのパス
-
-
-### 2. 以下のコマンドを実行する
-(実行するたびに画像1枚生成され指定のpathに保存する)
-$ python generator.py
-
-
-## 画像の特徴ベクトルを抽出する手順
-feature_extractor.pyを実行する。
-
-引数'--img_path' にgeneratorで生成した画像のパス（ファイル名も含む）を指定する。
-相対パスを指定した場合は、feature_extractor.py からの相対パスが指定されたことになる。
-
-例：
-$ python feature_extractor.py --img_path image_generated/test.jpg
-
-実行すると画像の特徴値として1000次元のベクトルが生成される。
+It is possible to pass only the first flag, from which the pretrained weights will be loaded, and then the training will start from zero.

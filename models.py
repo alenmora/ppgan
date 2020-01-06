@@ -49,27 +49,28 @@ class Generator(nn.Module):
     fmapMax (int): maximum number of channels for any layer
     latentSize (int): size of the latent vector. If None, it is initialized to min(fmapBase,fmapMax)
     """
-    def __init__(self, nOutputChannels=3, resolution=256, fmapBase=8192, fmapDecay=1.0, fmapMax=512, latentSize=None):
+    def __init__(self, config):
         super().__init__()
-        self.fmapBase = fmapBase
-        self.fmapDecay = fmapDecay
-        self.fmapMax = fmapMax
-        if latentSize == None: latentSize = self.getNoChannels(0)
-        nBlocks = int(np.log2(resolution))-1                                #4x4 resolution requires 1 blocks, 8x8 requires 2, and so on
-        assert resolution == 2**(nBlocks+1) and resolution >= 4
+        self.fmapBase = config.fmapBase
+        self.fmapDecay = config.fmapDecay
+        self.fmapMax = config.fmapMax
+        self.latentSize = config.latentSize
+        nBlocks = int(np.log2(config.endRes))-1                                #4x4 resolution requires 1 blocks, 8x8 requires 2, and so on
+        assert config.endRes == 2**(nBlocks+1) and config.endRes >= 4
+        self.outCh = config.nChannels
         
         chain = nn.ModuleList()
         toRGBs = nn.ModuleList()
         net = []
 
         # First block 4x4
-        net += [nn.Linear(latentSize,latentSize*4*4)]                       #Make sure that, no matter the size of the latent vector, it can be shaped into 4x4 tensors
-        net += [nn.LeakyReLU(negative_slope=0.2)]                           #Compute activation function
-        net += [modelUtils.ReshapeLayer([-1, latentSize, 4, 4])]            #Reshape the output as nBatch x nChannels (= latentSize) x 4 x 4. This counts as the first convolution block
-        inCh, outCh = latentSize, self.getNoChannels(1)                     #inCh = min(fmapBase,fmapMax), outCh = min(fmapBase/2,fmapMapx)
-        net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)   #Create the second conv2d block
+        net += [modelUtils.equalizedLinear(self.latentSize,self.latentSize*4*4)]    #Make sure that, no matter the size of the latent vector, it can be shaped into 4x4 tensors
+        net += [nn.LeakyReLU(negative_slope=0.2)]                                   #Compute activation function
+        net += [modelUtils.ReshapeLayer([-1, self.latentSize, 4, 4])]               #Reshape the output as nBatch x nChannels (= latentSize) x 4 x 4. This counts as the first convolution block
+        inCh, outCh = self.latentSize, self.getNoChannels(1)                        #inCh = min(fmapBase,fmapMax), outCh = min(fmapBase/2,fmapMapx)
+        net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)           #Create the second conv2d block
 
-        toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)               #Take the image back to RGB
+        toRGB = toRGBBlock(inCh=outCh, outCh=self.outCh)                            #Take the image back to RGB
         chain.append(nn.Sequential(*net))
         toRGBs.append(nn.Sequential(*toRGB))
         
@@ -80,7 +81,7 @@ class Generator(nn.Module):
             net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)             #Add first 2dConv
             inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)                #Keep the same number of channels between convolutions
             net = genConvBlock(net=net, inCh=inCh, outCh=outCh, kernelSize=3)             #Add sencond 2dConv
-            toRGB = toRGBBlock(inCh=outCh, outCh=nOutputChannels)                         #Take the image back to RGB
+            toRGB = toRGBBlock(inCh=outCh, outCh=self.outCh)                              #Take the image back to RGB
             chain.append(nn.Sequential(*net))                                    
             toRGBs.append(nn.Sequential(*toRGB))
         
@@ -93,14 +94,48 @@ class Generator(nn.Module):
         """
         return min(int(self.fmapBase / (2.0 ** (stage * self.fmapDecay))), self.fmapMax)
 
-    def forward(self, x, curResLevel, fadeWt=None):
+    def forward(self, x, curResLevel=None, fadeWt=1):
         """
         Forward the generator through the input x
         x (tensor): latent vector
         fadeWt (double): Weight to regularly fade in higher resolution blocks
         """
+        if curResLevel == None:
+            curResLevel = len(self.net.chain)-1
+            
         return self.net.forward(x, curResLevel, fadeWt)
 
+    def paTerm(self, x, curResLevel=None, fadeWt=1, againstInput = True):
+        """
+        Calculates the pulling away term, as explained in arXiv:1609.03126v4.
+        Believed to improve the variance of the generator and avoid mode collapse
+        x (tensor): latent vector
+        curResLevel (int): current resolution depth
+        fadeWt (double): Weight to regularly fade in higher resolution blocks
+        againstInput (bool): if true, the penaly term will be centered around the distance in the inputs
+        """
+        bs = x.size(0)
+        if  bs < 2: #Nothing to do if we only generate one candidate
+            return 0
+        
+        fakes = self.net.forward(x, curResLevel, fadeWt)
+        
+        x = x.view(bs, -1) #Unroll
+        fakes = fakes.view(bs, -1) #Unroll
+
+        #Calculate pair-wise cosine similarities between batch elements 
+        
+        suma = 0
+        for i in range(bs):
+            for j in range(i+1,bs):
+                xsim = torch.nn.functional.cosine_similarity(x[i],x[j],dim=0)**2
+                if againstInput:
+                    fakesim = torch.nn.functional.cosine_similarity(fakes[i],fakes[j],dim=0)**2
+                    suma = suma + (xsim-fakesim)**2/(fakesim**2 +1e-8)
+                else:
+                    suma = suma + xsim
+
+        return suma/(bs*(bs-1))
 
 ##############################################################
 # Critic
@@ -150,32 +185,34 @@ class Critic(nn.Module):
     latentSize (int): size of the latent vector. If None, it is initialized to min(fmapBase,fmapMax)
     batchStdDevGroupSize (int): size of the groups the batch is divided to calculate the statistics in the last part of the critic
     """
-    def __init__(self, nInputChannels=3, resolution=256, fmapBase=8192, fmapDecay=1.0, fmapMax=512, batchStdDevGroupSize = 4):
+    def __init__(self, config):
         super().__init__()
-        self.fmapBase = fmapBase
-        self.fmapDecay = fmapDecay
-        self.fmapMax = fmapMax
-        nBlocks = int(np.log2(resolution))-1
-        assert resolution == 2**(nBlocks+1) and resolution >= 4
-        
+        self.fmapBase = config.fmapBase
+        self.fmapDecay = config.fmapDecay
+        self.fmapMax = config.fmapMax
+        nBlocks = int(np.log2(config.endRes))-1
+        assert config.endRes == 2**(nBlocks+1) and config.endRes >= 4
+        self.inCh = config.nChannels
+        self.stdDevGroup = config.stdDevGroup
+
         chain = nn.ModuleList()
         fromRGBs = nn.ModuleList()
         net = []
 
         # Last block 4x4
         inCh, outCh = self.getNoChannels(1), self.getNoChannels(0)
-        fromRGB = fromRGBBlock(inCh=nInputChannels, outCh=inCh)               #Take the RGB image to the number of channels needed in the net
+        fromRGB = fromRGBBlock(inCh=self.inCh, outCh=inCh)               #Take the RGB image to the number of channels needed in the net
         
-        if batchStdDevGroupSize > 1: 
-            net.append(modelUtils.BatchStdConcat(batchStdDevGroupSize))
+        if self.stdDevGroup > 1: 
+            net.append(modelUtils.BatchStdConcat(self.stdDevGroup))
             inCh = inCh + 1
 
         net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3, padding=1)
         inCh, outCh = self.getNoChannels(0), self.getNoChannels(0)      
         net.append(modelUtils.WSConv2d(inCh=inCh, outCh=outCh, kernelSize=4, stride=1, padding=0))
-        net.append(nn.LeakyReLU(negative_slope=0.2)) #Now the output is of size batchSize x outCh x 1 x 1. 
+        net.append(nn.LeakyReLU(negative_slope=0.2))    #Now the output is of size batchSize x outCh x 1 x 1. 
         net.append(modelUtils.ReshapeLayer([-1,outCh])) #Get rid of the trivial dimensions. Otherwise the next line will flat the input into a 1D array of size (batchSize x outCh)
-        net.append(nn.Linear(outCh,1))     #Return a critic
+        net.append(modelUtils.equalizedLinear(outCh,1)) #Return a critic
                 
         chain.append(nn.Sequential(*net))
         fromRGBs.append(nn.Sequential(*fromRGB))
@@ -183,7 +220,7 @@ class Critic(nn.Module):
         # Higher resolution blocks
         for i in range(1,nBlocks):
             inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i+1)
-            fromRGB = fromRGBBlock(inCh=nInputChannels, outCh=inCh)
+            fromRGB = fromRGBBlock(inCh=self.inCh, outCh=inCh)
             net = []
             net = criticConvBlock(net, inCh=inCh, outCh=outCh, kernelSize=3)   #First convolutional block
             inCh, outCh = self.getNoChannels(i+1), self.getNoChannels(i)       #Double the number of channels for the second convolution 
@@ -201,7 +238,7 @@ class Critic(nn.Module):
         """
         return min(int(self.fmapBase / (2.0 ** (stage * self.fmapDecay))), self.fmapMax)
     
-    def forward(self, x, curResLevel, fadeWt=None):
+    def forward(self, x, curResLevel, fadeWt=0):
         return self.net.forward(x, curResLevel, fadeWt)
 
     def getOutputGradWrtInputs(self, input, curResLevel, fadeWt=None, device=torch.device('cpu')):

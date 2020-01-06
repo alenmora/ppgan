@@ -1,50 +1,73 @@
 import torch
 from torch import FloatTensor as FT
 from models import Generator
-import dataUtils
-import config
+import utils
+import os
+from config import config
+import argparse
+import math
+import numpy as np
 
-
-class Generator_for_eval:
+def loadPretrainedWts(dir):
     """
-    image generator
+    load trained weights
     """
-    def __init__(self):
-        # Paths
-        self.LOG_DIR = config.LOG_DIR
-        self.logDir = config.logDir
-        self.modelFname = config.modelFname
-
-        # size of input noise (default:512)
-        self.noise_size = config.latentSize
-
-        self.loadPretrainedWts()
-
-    def loadPretrainedWts(self):
-        """
-        create generator & load trained weights
-        """
-        self.logDir = self.LOG_DIR + self.logDir
-        self.gen = Generator().cuda()
-
-        wtsDict = torch.load(self.logDir,
-                             map_location=lambda storage, loc: storage)
-        self.gen.load_state_dict(wtsDict['gen'])
-
-    def getNoise(self):
-        return FT(self.noise_size).normal_().cuda()
-
-
+        
+    if os.path.isfile(dir):
+        try:
+            wtsDict = torch.load(dir, map_location=lambda storage, loc: storage)
+            return wtsDict
+        except:
+            print(f'ERROR: The weights in {dir} could not be loaded')
+    else:
+        print(f'ERROR: The file {dir} does not exist')    
+    
 if __name__ == "__main__":
-    eval = Generator_for_eval()
-    generator = eval.gen
-    noise = eval.getNoise()
+    parser = argparse.ArgumentParser('PGGAN_GEN')
+    parser.add_argument('--nImages', type=int, default=20)
+    parser.add_argument('--wtsFile', type=str, default='./ppgan3/128x128_final.pth.tar')
+    parser.add_argument('--outFile', type=str, default='./generatedImages.png')
+    parser.add_argument('--resolution', nargs='?')
 
-    # generatorに渡す二番目の引数で生成する画像のsizeを指定する
-    # 対照関係は以下参照
-    # 0:pixel=2*2, 1:pixel=4*4, 2:pixel=8*8, 3:pixel=16*16 4:pixel=32*32...
-    output_tensor = generator(noise, 4)
-    output_image = dataUtils.tensorToImage(output_tensor[0])
+    args, _ = parser.parse_known_args()
 
-    print('image size : ', str(output_tensor.shape[2]) + '*' + str(output_tensor.shape[2]))
-    output_image.save(config.gen_image_path)
+    device = torch.device('cpu')
+
+    wts = loadPretrainedWts(args.wtsFile)
+    gen = Generator(config).to(device)
+    n = args.nImages
+
+    gen.load_state_dict(wts['gen']) 
+
+    z = utils.getNoise(bs = n, latentSize = config.latentSize, device = device)
+
+    finalRes = int(args.wtsFile.split('/')[-1].split('x')[0])
+
+    resLevel = None
+    
+    if args.resolution:
+        resolution = int(args.resolution)
+        if finalRes > resolution:
+            resLevel = int(np.log2(resolution)-2)
+
+    fakes = gen(z, curResLevel = resLevel)
+
+    print('single image size: ', str(fakes.shape[2]) + 'x' + str(fakes.shape[2]))
+    print(f'number of images: {n}')
+    print(f'saving image to: {args.outFile}')
+
+    nrows = 1
+
+    if math.sqrt(n) == int(math.sqrt(n)):
+        nrows = math.sqrt(n)
+    
+    elif n > 5:
+        i = int(math.sqrt(n))
+        while i > 2:
+            if (n % i) == 0:
+                nrows = i
+                break
+
+            i = i-1
+
+    utils.saveImage(fakes, args.outFile, nrow=nrows, padding=5)
