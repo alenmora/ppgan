@@ -13,9 +13,7 @@ I tried to keep it as close as possible to the original. However, since I ran in
 with lower resolutions, I changed the default number of channels in each convolutional block, the 
 length of the latent vector, and the number of images shown per stable/fading stage. These
 can be easily configured by either modifying the config.py file, or by adding the next flags to the
-script call.
-
-To recover the original settings, use the next flags with the corresponding values when calling the script:
+script call:
 
 ``` shell
 --fmapBase 8192 --fmapMax 512 --fmapDecay 1 --samplesWhileStable 800000 --samplesWhileFade 800000 --endRes 1024 --latentSize 512 --nCritPerGen 1 --stdDevGroup 4
@@ -38,7 +36,7 @@ Added some support for the [BEGAN](https://arxiv.org/abs/1703.10717) loss functi
 
 Added also support for multiple "extra-loss" (regularization) terms, both in the critic and in the generator. In the critic, the default term, PGGAN, is the
 sum of the drift loss and the gradient penalty used in the original paper. The default values of the hyperparameters for these losses are the
-same as in the original. The other two possible otions are TV (total variation, from [here](https://arxiv.org/abs/1812.00810)) and a 
+same as in the original. The other two possible options are TV (total variation, from [here](https://arxiv.org/abs/1812.00810)) and a 
 0GP (a zero centered gradient penalty, from [here](https://arxiv.org/abs/1902.03984)). To change between them use
 ``` shell
 --extraLossTerm 0GP
@@ -82,3 +80,9 @@ In order to resume a training session, use the next flags:
 ```
 
 It is possible to pass only the first flag, from which the pretrained weights will be loaded, and then the training will start from zero.
+
+### 4. Generated images
+
+This is a sample of anime faces I got after training with the default parameters
+
+![genImages](./generatedImages.png)
