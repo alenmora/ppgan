@@ -50,6 +50,8 @@ all the samples in the  minibatch to be orthogonal to each other) or centered ar
 --paterm True (centered around the latents cosine) / False (centered at zero)
 ```
 
+Also included the possibility to [unroll the discriminator](https://arxiv.org/abs/1611.02163), which seems to increase the variability of the model.
+
 ## Training preparation
 ### 1. Data
 You can specify the folder where the data is stored by passing the `--data_path` flag. Since the dataLoader uses the pyTorch ImageFolder class as a dataset, the data path should be one of the form:
