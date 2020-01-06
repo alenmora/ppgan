@@ -112,7 +112,7 @@ def debugMemory():
     for line in sorted(tensors.items()):
         print('{}\t{}'.format(*line))
 
-def cleanImagesFolder(curPath, newPath):
+def cleanImagesFolder(curPath, newPath, res = None, searchFaces = False, faceThreshold = 0.5):
     """
     Creates a new folder containing all the images
     from the current folder with anime faces on them, using the
@@ -123,10 +123,19 @@ def cleanImagesFolder(curPath, newPath):
     images = glob(os.path.join(curPath, '*.jpg'))
 
     for image in images:
-        im = PIL.Image.open(image)
-        faces = animeface.detect(im)
-        if not faces: continue #Get rid of garbage
-        if (faces[0]['Face likelihood'] < 0.5): continue #Get rid of garbage
-        imName = image.split('/')[-1]
-        newImage = os.path.join(newPath,imName)
-        copyfile(image,newImage)
+        try:
+            im = PIL.Image.open(image)
+            if res != None:
+                if min(im.size) < res: continue
+            if searchFaces:
+                faces = animeface.detect(im)
+                if not faces: continue #Get rid of garbage
+                if (faces[0].likelihood < faceThreshold): continue #Get rid of garbage
+
+            imName = image.split('/')[-1]
+            newImage = os.path.join(newPath,imName)
+            copyfile(image,newImage)
+        
+        except OSError:
+            continue
+    
