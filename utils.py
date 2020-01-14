@@ -5,8 +5,8 @@ import numpy as np
 import torchvision
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-from torch import FloatTensor as FT
 from datetime import datetime
+from torch import FloatTensor as FT
 import PIL.Image
 import animeface
 from shutil import copyfile
@@ -88,6 +88,22 @@ def saveImage(tensor, filename, nrow=8, padding=2, pad_value=0):
     ndarr = grid.mul(255).clamp(0, 255).byte().permute(1, 2, 0).numpy()
     im = Image.fromarray(ndarr)
     im.save(filename)
+
+def saveGif(tensor, filename):
+    """Save a given tensor into a gif image.
+    Args:
+        tensor (Tensor or list): Image to be saved
+        filename (str): Where to output the result
+    """
+    from PIL import Image
+    tensor = tensor.cpu()
+    images = []
+    for k in range(tensor.size(0)):
+        nadrr = tensor[k].mul(255).clamp(0, 255).byte().permute(1, 2, 0).numpy()
+        im = Image.fromarray(nadrr)
+        images.append(im)
+    images = images + list(reversed(images[1:-1]))
+    images[0].save(filename, save_all=True, append_images=images[1:], duration=500,loop=0)
 
 def switchTrainable(net,isTrainable):
     """

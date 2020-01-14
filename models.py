@@ -102,7 +102,7 @@ class Generator(nn.Module):
         """
         return self.net.forward(x, curResLevel, fadeWt)
 
-    def paTerm(self, x, curResLevel=None, fadeWt=1, againstInput = True):
+    def paTerm(self, x, curResLevel=None, fadeWt=1, againstInput = 2):
         """
         Calculates the pulling away term, as explained in arXiv:1609.03126v4.
         Believed to improve the variance of the generator and avoid mode collapse
@@ -125,12 +125,17 @@ class Generator(nn.Module):
         suma = 0
         for i in range(bs):
             for j in range(i+1,bs):
-                xsim = torch.nn.functional.cosine_similarity(x[i],x[j],dim=0)**2
-                if againstInput:
-                    fakesim = torch.nn.functional.cosine_similarity(fakes[i],fakes[j],dim=0)**2
-                    suma = suma + (xsim-fakesim)**2/(fakesim**2 +1e-8)
+                fakesim = torch.nn.functional.cosine_similarity(fakes[i],fakes[j],dim=0)
+                if againstInput == 0:
+                    suma = suma + fakesim**2
+                elif againstInput == 1:
+                    xsim = torch.nn.functional.cosine_similarity(x[i],x[j],dim=0)
+                    suma = suma + (xsim-fakesim)**2/(xsim**2 +1e-8)
+                elif againstInput == 2:
+                    fakesim = torch.nn.functional.cosine_similarity(x[i],x[j],dim=0)
+                    suma = suma + (xsim**2-fakesim**2)**2/(xsim**4 +1e-8)
                 else:
-                    suma = suma + xsim
+                    return 0
 
         return suma/(bs*(bs-1))
 
@@ -235,10 +240,10 @@ class Critic(nn.Module):
         """
         return min(int(self.fmapBase / (2.0 ** (stage * self.fmapDecay))), self.fmapMax)
     
-    def forward(self, x, curResLevel, fadeWt=0):
+    def forward(self, x, curResLevel=None, fadeWt=1):
         return self.net.forward(x, curResLevel, fadeWt)
 
-    def getOutputGradWrtInputs(self, input, curResLevel, fadeWt=None, device=torch.device('cpu')):
+    def getOutputGradWrtInputs(self, input, curResLevel=None, fadeWt=1, device=torch.device('cpu')):
         """
         Return the unrolled gradient matrix of the critic output wrt the input parameters for 
         each example in the input

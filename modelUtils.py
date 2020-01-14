@@ -125,7 +125,7 @@ class ProcessGenLevel(nn.Module):
         self.chain = chain
         self.toRGBs = toRGBs
 
-    def forward(self, x, curResLevel, fadeWt=0):
+    def forward(self, x, curResLevel=None, fadeWt=1):
 
         if curResLevel == None:
             curResLevel = len(self.chain)-1
@@ -158,7 +158,10 @@ class ProcessCriticLevel(nn.Module):
         self.fromRGBs = fromRGBs
         self.chain = chain
 
-    def forward(self, x, curResLevel, fadeWt=0):
+    def forward(self, x, curResLevel=None, fadeWt=1):
+
+        if curResLevel == None:
+            curResLevel = len(self.chain)-1
 
         if fadeWt < 1:
             prev_x = F.avg_pool2d(x, kernel_size=2, stride=2)   #Since the resolution of the input image is twice as the previous one, we downscale

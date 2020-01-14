@@ -47,6 +47,7 @@ class Trainer:
         self.samplesWhileFade = int(config.samplesWhileFade)
                 
         #Training parameters
+        self.lazyReg = config.lazyRegularization if config.lazyRegularization else 1
         self.imShown = 0
         self.imShownInRes = 0
         self.curResLevel = 0
@@ -71,7 +72,7 @@ class Trainer:
         self.extraLossTerm = config.extraLossTerm
 
         #Loss function of generator
-        self.paterm = config.paterm
+        self.paterm = int(config.paterm)
         self.lambg = config.lambg
 
         # models
@@ -254,7 +255,7 @@ class Trainer:
         driftLoss_, extraLoss_ = torch.tensor(0.).to(self.device), torch.tensor(0.).to(self.device)
 
         # GP and regularizators
-        if self.extraLossTerm == 'PGGAN': #Use gradient penalty and drift loss
+        if self.extraLossTerm == 'PGGAN' and self.imShown % self.lazyReg == 0: #Use gradient penalty and drift loss
             # drift loss
             driftLoss_ = self.epsilon*(cRealOut**2).mean()
 
@@ -265,14 +266,14 @@ class Trainer:
             shape_ = gradInterpols.shape
             extraLoss_ = self.lamb*((gradInterpols.norm(dim=1)-self.obj)**2).mean()/(self.obj+1e-8)**2
 
-        elif self.extraLossTerm == '0GP': #Use zero-centered gradient penalty arXiv:1902.03984v1
+        elif self.extraLossTerm == '0GP' and self.imShown % self.lazyReg == 0: #Use zero-centered gradient penalty arXiv:1902.03984v1
             alpha = torch.rand(self.batchSize, 1, 1, 1, device=self.device)
             interpols = (alpha*real + (1-alpha)*fake).detach().requires_grad_(True)
             gradInterpols = self.crit.getOutputGradWrtInputs(interpols, curResLevel = self.curResLevel, fadeWt=self.fadeWt, device=self.device)
             shape_ = gradInterpols.shape
             extraLoss_ = self.lamb*(gradInterpols.norm(2,dim=1).mean())
         
-        elif self.extraLossTerm == 'TVP': #USe TV penalty arXiv:1812.00810v1
+        elif self.extraLossTerm == 'TVP' and self.imShown % self.lazyReg == 0: #USe TV penalty arXiv:1812.00810v1
             extraLoss_ = self.lamb*(cRealOut-cFakeOut-self.delta).norm(1)
 
         critLoss_ = multFactor*critFakeLoss_ - critRealLoss_ + driftLoss_ + extraLoss_
@@ -293,7 +294,7 @@ class Trainer:
         genCritLoss_ = self.crit(x=fake, fadeWt=self.fadeWt, curResLevel = self.curResLevel).mean()
         genLoss_ = -genCritLoss_
 
-        if self.paterm != None:
+        if self.paterm != None and self.imShown % self.lazyReg == 0:
             genLoss_ = genLoss_ + self.lambg*self.gen.paTerm(latent, self.curResLevel, self.fadeWt, againstInput = self.paterm)
         
         genLoss_.backward(); self.gOptimizer.step()

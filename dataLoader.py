@@ -34,6 +34,7 @@ class dataLoader:
                     root=self.data_path,
                     transform=transforms.Compose(   [
                                                     transforms.Resize(size=(self.imsize,self.imsize), interpolation=self.filter),
+                                                    transforms.RandomHorizontalFlip(), #data augmentation
                                                     transforms.ToTensor(),
                                                     ]))
 

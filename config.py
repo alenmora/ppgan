@@ -47,9 +47,10 @@ parser.add_argument('--epsilon', type=float, default=1e-3)                 #Weig
 parser.add_argument('--delta', type=float, default=5)                      #Delta term for TV penalization (arXiv:1812.00810v1)
 parser.add_argument('--lambk', type=float, default=1e-3)                   #Learning rate for the parameter kt (BEGAN loss function)
 parser.add_argument('--gamma', type=float, default=0.8)                    #ratio between expected values for the real and fake losses in the critic (BEGAN)
-parser.add_argument('--paterm', nargs='?')                                 #Include a repelling regularizer term in the generator (arXiv:1609.03126v4). The user should specify if the term is as described in the original paper (by passing False to the flag), or centered around the distance of the inputs (by passing True)
+parser.add_argument('--paterm', nargs='?', type=int)                       #Include a repelling regularizer term in the generator (arXiv:1609.03126v4). The user should specify the form of the regularizer: 0 will apply the same regularizer as in the original article. 1 will regularize against the latent vectors. And 2 will regularize the square of the similarities of the images and the latent vectors
 parser.add_argument('--lambg', type=float, default=1)                      #Weiht of the pulling-away term in the generator
-parser.add_argument('--unrollCritic',nargs='?')                            #For an integer value n greater than 1, it unrolls the discriminator n steps (arXiv:1611.02163v4)
+parser.add_argument('--unrollCritic', nargs='?', type=int)                 #For an integer value n greater than 1, it unrolls the discriminator n steps (arXiv:1611.02163v4)
+parser.add_argument('--lazyRegularization', nargs='?', type=int)           #Performs lazy regularization: calculates the regularization terms in the loss functions only every n batches
 
 ############################
 #  Network parameters
